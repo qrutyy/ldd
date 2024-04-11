@@ -26,6 +26,13 @@
 *.la
 *.lo
 
+# Module ones
+*.mod
+*.mod.c
+*.mod.o
+*.order
+*.symvers
+
 # Shared objects (inc. Windows DLLs)
 *.dll
 *.so
