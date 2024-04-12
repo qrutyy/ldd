@@ -1,6 +1,6 @@
 # LDD
 
-Linux Device Drivers workshop - a collection of modules and char drivers implementations, made for kernel study. 
+*Linux Device Drivers workshop* - a collection of modules and char drivers implementations, made for kernel study. 
 
 
 ## Usage
@@ -19,12 +19,14 @@ dmesg
 *Now you see the DM output.*
 
 ### xorrand 
-Used these steps to reproduce provided plots.
+
 ```bash
 gcc xorrand.c -o xorrand -O2
 ./xorrand >> testrand.txt
 python3 plots.py // u can specify the filename inside the script
 ```
+*Used these steps to reproduce provided plots.*
+
 
 ## Author: [@qrutyy](https://github.com/qrutyy)
 
