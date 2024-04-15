@@ -119,6 +119,7 @@ ssize_t xw_read(struct file *file, char __user *buf, size_t count, loff_t *offse
 	ssize_t i = 0;
 	ssize_t rest = count % buf_sz;
 	ssize_t restsz = rest % sizeof(u32) ? rest / sizeof(u32) : rest / sizeof(u32) + 1;
+	
 	u32 kbuf[buf_sz/sizeof(u32)];
 	// u32 *kbuf = kmalloc(buf_sz/sizeof(u32) + 1, GFP_NOIO);
 	// Using GFP_KERNEL means that kmalloc can put the current process to sleep waiting for a page when called in low-memory situations.
