@@ -10,6 +10,7 @@ MODULE_LICENSE("Dual MIT/GPL");
 #define MAX_BD_NAME_LENGTH 15
 
 static char *current_bd_name;
+static char *current_bd_path;
 
 typedef struct vector {
     int size;
@@ -20,19 +21,22 @@ typedef struct vector {
 static vector *bd_vector;
 
 void vector_init(vector *v) {
+    v = kzalloc(sizeof(vector), GFP_KERNEL);
     if (v == NULL) {
-        pw_warn("Vector is NULL\n");
+        pr_warn("Vector is NULL\n");
+        return;
     }
+    
     v->capacity = INIT_VECTOR_CAP;
     v->size = 0;
     v->arr = kzalloc(sizeof(struct block_device*) * v->capacity, GFP_KERNEL);
     if (v->arr == NULL) {
         pr_warn("memory allocation failed\n"); // TODO: exit the module
+        return;
     }
 }
 
-static void vector_add_bdev(struct bdev_handle* current_bdev_handle, char* bd_name) {
-    pr_debug("all is cool 2\n");
+static int vector_add_bdev(struct bdev_handle* current_bdev_handle, char* bd_name) {
     
     if (bd_vector->size < bd_vector->capacity) {
         pr_info("vector wasn't resized\n");
@@ -43,9 +47,15 @@ static void vector_add_bdev(struct bdev_handle* current_bdev_handle, char* bd_na
 
         bd_vector->capacity *= 2; // TODO: make coef. smaller 
         bd_vector->arr = krealloc(bd_vector->arr, bd_vector->capacity, GFP_KERNEL);
+        if (bd_vector->arr == NULL) {
+            pr_info("vector's array allocation failed\n");
+            return -ENOMEM;
+        }
     }
 
     bd_vector->arr[bd_vector->size++] = *current_bdev_handle;
+
+    return 0;
 }
 
 static struct bdev_handle* get_bd_handler_by_index(int index) {
@@ -88,43 +98,55 @@ static int __init bcm_init(void) {
 }
 
 static void __exit bcm_exit(void) {
-
-    kfree(current_bd_name);
-    kfree(bd_vector->arr);
+    if (current_bd_name != NULL) {
+        kfree(current_bd_name);
+    }
+    if (bd_vector->arr != NULL) {
+        kfree(bd_vector->arr);
+    }
     
     pr_info("BD checker module exit\n");
 }
 
-static void set_bd_name(char *arg) {
+/*
+ * Sets static current_bd_name and current_bd_paht according to @arg
+ * @arg - user input from parameter
+ */
 
-    ssize_t len = strlen(arg) + 1;
+static int set_bd_name_and_path(char *arg) {
+
+    ssize_t len = strlen(arg);
 
     if (current_bd_name) {
         kfree(current_bd_name);
         current_bd_name = NULL;
     }
+    if (current_bd_path) {
+        kfree(current_bd_path);
+        current_bd_path = NULL;
+    }
 
-    current_bd_name = kzalloc(sizeof(char) * len, GFP_KERNEL);
+    current_bd_name = kzalloc(sizeof(char) * len + 1, GFP_KERNEL);
+    current_bd_path = kzalloc(sizeof(char) * len, GFP_KERNEL);
+
     if (current_bd_name == NULL) {
-        pr_warn("memory allocation failed\n"); // TODO: exit the module
+        pr_warn("memory allocation failed\n"); 
+        return -ENOMEM;
+    }
+    else if (current_bd_path == NULL) {
+        kfree(current_bd_name);
+        pr_warn("memory allocation failed\n");
+        return -ENOMEM;
     }
     // Using GFP_KERNEL means that allocation function can put the current process to sleep, waiting for a page, when called in low-memory situations.
 
-    strncpy(current_bd_name, arg, len - 1);
+    strncpy(current_bd_name, arg, len); 
+    strncpy(current_bd_path, arg, len - 1); // -1 due to removing the \n
+
+    pr_info("name set up succesfully\n");
+
+    return 0;
 }
-
-// static struct bdev_handle* get_bd_by_handler(bdev_handle bdev_handler) {
-//     if (bd_vector == NULL || name == NULL) {
-//         return NULL;
-//     }
-
-//     for (int i = 0; i < bd_vector->size; i ++) {
-//         if (bd_vector->arr[i] == bdev_handler) {
-//             return &bd_vector->arr[i];
-//         }
-//     }
-//     pr_warn("no BD with such name\n");
-// }
 
 static void bcm_submit_bio(struct bio *bio) {
     pr_info("submit called\n");
@@ -135,29 +157,35 @@ static const struct block_device_operations bcm_bio_ops = {
     .submit_bio = bcm_submit_bio,
 };
 
-static struct bdev_handle* open_bd(char* bd_name) {
-    return bdev_open_by_path(bd_name, BLK_OPEN_WRITE | BLK_OPEN_READ, NULL, NULL);
+static struct bdev_handle* open_bd(char* bd_path) {
+    return bdev_open_by_path(bd_path, BLK_OPEN_WRITE | BLK_OPEN_READ, NULL, NULL);
 }
 
 /*
  * Creates BD defering to its name. Adds it to the vector and set ups the disk
  * @bd_name: name of creating BD
 */
-static struct bdev_handle* create_bd(char* bd_name) {
+static struct bdev_handle* create_bd(void) {
 
     int error;
     int new_major;
     struct gendisk* new_disk;
     struct bdev_handle* current_bdev_handle;
 
-    new_major = register_blkdev(0, bd_name);
-    
+    new_major = register_blkdev(0, current_bd_name);
+
     if (new_major < 0) {
         printk(KERN_ERR "unable to register mybdev block device\n");
-        return -EBUSY;
+        return NULL;
     }
-    
-    current_bdev_handle = open_bd(bd_name);
+
+    current_bdev_handle = open_bd(current_bd_path);
+    if (IS_ERR(current_bdev_handle)) {
+        pr_err("Opening device failed, %d\n", PTR_ERR(current_bdev_handle));
+        pr_info("hahahahha\n");
+        pr_info("%s\n", current_bd_name);
+        pr_info("%s\n", current_bd_path);
+    }
 
     new_disk = blk_alloc_disk(NUMA_NO_NODE);
     new_disk->major = new_major;
@@ -166,20 +194,37 @@ static struct bdev_handle* create_bd(char* bd_name) {
     new_disk->flags = GENHD_FL_NO_PART;
     new_disk->fops = &bcm_bio_ops;
     new_disk->private_data = current_bdev_handle;
-    
-    if (bd_name) {
-        strcpy(new_disk->disk_name, bd_name);
+    pr_info("1\n");
+
+    if (current_bd_name) {
+        pr_info("2\n");
+        strcpy(new_disk->disk_name, current_bd_name);
+        pr_info("3\n");
     }
     else {
         pr_warn("bd_name is NULL\n");
-        return NULL; // TODO: edit return code
+        return NULL;
     }
+    pr_info("4\n");
 
-    set_capacity(new_disk, 2048); // TODO: edit size
+    int disk_size = get_capacity(current_bdev_handle->bdev->bd_disk);
+    pr_info("5\n");
+
+    if (disk_size == NULL) {
+        pr_info("disk_size is null\n");
+    }
+    else {
+        pr_info("disk size is %d\n", disk_size);
+    }
+    pr_info("6\n");
+
+    set_capacity(new_disk, disk_size);
+    pr_info("7\n");
     current_bdev_handle->bdev->bd_disk = new_disk;
+    pr_info("8\n");
 
     error = add_disk((get_bd_handler_by_name(current_bd_name))->bdev->bd_disk);
-    
+    pr_info("9\n");
     if (error) { 
         put_disk((get_bd_handler_by_name(current_bd_name))->bdev->bd_disk);
     }
@@ -190,7 +235,7 @@ static struct bdev_handle* create_bd(char* bd_name) {
 /*
  * Checks if name is occupied, if so - opens the BD, if not - creates it.
  */
-static void check_and_create_bd(void) {
+static int check_and_create_bd(void) {
     
     int status;
     struct bdev_handle* current_bdev_handle;
@@ -199,55 +244,46 @@ static void check_and_create_bd(void) {
 
     if (status < 0) {
         pr_info("%s name is free\n", current_bd_name);
-        current_bdev_handle = create_bd(current_bd_name);
+        current_bdev_handle = create_bd();
+        if (current_bdev_handle == NULL) {
+            pr_warn("smth went wrong in create_bd()\n");
+            return -ENOMEM;
+        }
     }
     else {
         pr_info("%s name is occupied\n", current_bd_name);
         current_bdev_handle = open_bd(current_bd_name);
     }
-    pr_debug("all is cool\n");
+    pr_info("check and create: lookup returned %d\n", status);
     
-    vector_add_bdev(current_bdev_handle, current_bd_name);
+    int err = vector_add_bdev(current_bdev_handle, current_bd_name);
+    if (err) {
+        return -ENOMEM;
+    }
 
-    pr_debug("CAC: lookup returned %d\n", status);
+    pr_info("vector succesfully supplemented\n");
+    
+    return 0;
 }
 
-// static void bcm_submit_bio(struct bio *bio) {
-
-//     /* The type used for indexing onto a disc or disc partition.
-    
-//     Linux always considers sectors to be 512 bytes long independently
-//     of the devices real block size. */ 
-
-//     sector_t sector = bio->bi_iter.bi_sector; // current_sector 
-//     sector_t nr_sectors = bio_sectors(bio); 
-// }
-
-// static void bcm_clone_bio(char *arg, const struct kernel_param *kp) {
-    
-//     struct bio *cloned_bio;
-//     int index;
-//     char new_bd_name[MAX_BD_NAME_LENGTH];
-
-//     sscanf(arg, "%d %s", index, new_bd_name);
-    
-//     bcm_set_bd_name(new_bd_name);
-//     check_and_create_bd();
-
-//     bd_to_clone_from
-//     cloned_bio = bio_alloc_clone(get_bd_by_name(bd_name), bio, REQ_OP_WRITE, GFP_KERNEL);
-    
-//     submit_bio(bio);
-    
-// }
 /* 
  * Checks if the name isn't occupied by other BD. In case it isn't - 
  * creates a BD with such name (create_bd)
  */
 static int bcm_check_bd(const char *arg, const struct kernel_param *kp) {
+    int err = 0;
 
-    set_bd_name(arg);
-    check_and_create_bd();
+    err = set_bd_name_and_path(arg);
+    
+    if (err) {
+        return -ENOMEM;
+    }
+    
+    err = check_and_create_bd();
+    
+    if (err) {
+        return -ENOMEM;
+    }
 
     return 0;
 }
@@ -285,6 +321,10 @@ static int bcm_get_bd_names(char *buf, const struct kernel_param *kp) {
     return total_length;
 }
 
+/*
+ * Deletes by index*** of bdev from printed list
+ */
+
 static int bcm_delete_bd(const char *arg, const struct kernel_param *kp) {
     int index = convert_to_int(arg) - 1;
     
@@ -312,15 +352,10 @@ static const struct kernel_param_ops bcm_get_bd_ops = {
     .get = bcm_get_bd_names,
 };
 
-// static const struct kernel_param_ops bcm_clone_bio_ops = {
-//     .set = bcm_clone_bio;
-//     .get = NULL;
-// };
-
 // 3rd param - args for operations
 
-MODULE_PARM_DESC(bd_name, "Check if such BD exists, if not - add");
-module_param_cb(bd_name, &bcm_check_ops, NULL, S_IWUSR);
+MODULE_PARM_DESC(check_bd_name, "Input a BD name. Check if such BD exists, if not - add");
+module_param_cb(check_bd_name, &bcm_check_ops, NULL, S_IWUSR);
 
 MODULE_PARM_DESC(delete_bd, "Delete BD");
 module_param_cb(delete_bd, &bcm_delete_ops, NULL, S_IWUSR);
