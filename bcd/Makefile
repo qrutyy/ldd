@@ -25,7 +25,7 @@ clean:
 
 else
     # called from kernel build system: just declare what our modules are
-    obj-m := bdchecker.o
+    obj-m := bdrm.o
 endif
 
 
