@@ -1,5 +1,6 @@
 #include <linux/blkdev.h>
 #include <linux/moduleparam.h>
+// #include <linux/block/bdev.h>
 
 MODULE_DESCRIPTION("Block Device Redirect Module");
 MODULE_AUTHOR("qrutyy");
@@ -26,17 +27,17 @@ typedef struct bd_manager {
 
 static vector *bd_vector;
 
-static int vector_init(vector *v) {
-    v = kzalloc(sizeof(vector), GFP_KERNEL);
-    if (!v) {
+static int vector_init(void) {
+    bd_vector = kzalloc(sizeof(vector), GFP_KERNEL);
+    if (!bd_vector) {
         pr_err("memory allocation failed\n");
         return -ENOMEM;
     }
 
-    v->capacity = INIT_VECTOR_CAP;
-    v->size = 0;
-    v->arr = kzalloc(sizeof(struct bd_manager *) * v->capacity, GFP_KERNEL);
-    if (!v->arr) {
+    bd_vector->capacity = INIT_VECTOR_CAP;
+    bd_vector->size = 0;
+    bd_vector->arr = kzalloc(sizeof(struct bd_manager *) * bd_vector->capacity, GFP_KERNEL);
+    if (!bd_vector->arr) {
         pr_err("memory allocation failed\n");
         return -ENOMEM;
     }
@@ -44,22 +45,25 @@ static int vector_init(vector *v) {
 }
 
 static int vector_add_bdev(struct bd_manager *current_bdev_manager) {
-
+    pr_info("25\n");
+    if (!bd_vector) pr_info("38198321\n");
     if (bd_vector->size < bd_vector->capacity) {
         pr_info("vector wasn't resized\n");
     } else {
         pr_info("vector was resized\n");
 
         bd_vector->capacity *= 2; // TODO: make coef. smaller
+        pr_info("35\n");
         bd_vector->arr = krealloc(bd_vector->arr, bd_vector->capacity, GFP_KERNEL);
         if (!bd_vector->arr) {
             pr_info("vector's array allocation failed\n");
             return -ENOMEM;
         }
     }
+	pr_info("1\n");
 
     bd_vector->arr[bd_vector->size++] = *current_bdev_manager;
-
+	pr_info("2\n");
     return 0;
 }
 
@@ -79,7 +83,7 @@ static int __init bdrm_init(void) {
 
     pr_info("BD checker module init\n");
 
-    vector_init(bd_vector);
+    vector_init();
 
     return 0;
 }
@@ -129,7 +133,9 @@ static void bdrm_submit_bio(struct bio *bio) {
         return;
     }
 
-    clone->bi_end_io = bio_endio(bio); // how to close the parent, when child dies
+    clone->bi_end_io = bio->bi_end_io; // how to close the parent, when child dies
+	
+	// bio_endio(clone);
 
     submit_bio(clone);
 
@@ -202,21 +208,27 @@ static struct bd_manager *create_bd(void) {
     struct bd_manager *current_bdev_manager;
 
     new_major = register_blkdev(0, current_bd_name);
+	pr_info("5\n");
 
     if (new_major < 0) {
-        printk(KERN_ERR "unable to register mybdev block device\n");
+        pr_err("unable to register mybdev block device\n");
         return NULL;
     }
 
+	pr_info("6\n");
+
     new_disk = blk_alloc_disk(NUMA_NO_NODE);
+	pr_info("7\n");
     new_disk->major = new_major;
     new_disk->first_minor = 1;
     new_disk->minors = 1;
     new_disk->flags = GENHD_FL_NO_PART;
     new_disk->fops = &bdrm_bio_ops;
+	pr_info("8\n");
+	// current_bdev_handle->bdev = bdev_alloc(new_disk, 0); no such function wtf.
 
-    current_bdev_handle = open_bd(current_bd_path);
-
+    // current_bdev_handle = open_bd(current_bd_path);
+	pr_info("9\n");
     if (IS_ERR(current_bdev_handle)) {
         pr_info("%s\n", current_bd_name);
         pr_info("%s\n", current_bd_path);
@@ -258,35 +270,44 @@ static int check_and_create_bd(void) {
 
     int status;
     int error;
-    struct bdev_handle *current_bdev_handle;
-    struct bd_manager *current_bdev_manager;
+    struct bdev_handle *current_bdev_handle = kmalloc(sizeof(struct bdev_handle), GFP_KERNEL);
+    struct bd_manager *current_bdev_manager = kmalloc(sizeof(struct bd_manager), GFP_KERNEL);
 
-    status = lookup_bdev(current_bd_name, NULL);
+    current_bdev_handle = open_bd(current_bd_path);
 
-    if (status < 0) {
-        pr_info("%s name is free\n", current_bd_name);
-        current_bdev_handle = create_bd()->bdev_handler;
-        if (!current_bdev_handle) {
+    if (IS_ERR(current_bdev_handle)) { // idk if this branch works))))))))
+        pr_info("%s name is free\n", current_bd_path);
+        current_bdev_manager = create_bd();
+        
+		if (!current_bdev_manager) {
             pr_err("smth went wrong in create_bd()\n");
-            return -ENOMEM;
-        }
-    } else {
-        pr_info("%s name is occupied\n", current_bd_name);
-        current_bdev_handle = open_bd(current_bd_name);
+            goto free_bdev;
+            
+        } else {
+			current_bdev_handle = current_bdev_manager->bdev_handler;
+		}
     }
+
     pr_info("check and create: lookup returned %d\n", status);
 
-    current_bdev_manager->bdev_handler = current_bdev_handle;
+	current_bdev_manager->bdev_handler = current_bdev_handle;
     current_bdev_manager->bd_name = current_bd_name;
-
-    error = vector_add_bdev(current_bdev_manager);
-    if (error) {
-        return -ENOMEM;
+    
+	error = vector_add_bdev(current_bdev_manager);
+    
+	if (error) {
+		pr_err("vector add failed\n");
+        goto free_bdev;
     }
 
     pr_info("vector succesfully supplemented\n");
 
     return 0;
+
+free_bdev:
+    kfree(current_bdev_handle);
+    kfree(current_bdev_manager);
+    return -ENOMEM;
 }
 
 /**
@@ -330,7 +351,7 @@ static int bdrm_get_bd_names(char *buf, const struct kernel_param *kp) {
                 5; // 5 for the index number and dot
     }
 
-    names_list = (char *)kmalloc(total_length + 1, GFP_KERNEL);
+    names_list = (char *)kzalloc(total_length + 1, GFP_KERNEL);
     if (!names_list) {
         pr_err("memory allocation failed\n"); // TODO: exit the module
         return NULL;
@@ -352,7 +373,7 @@ static int bdrm_get_bd_names(char *buf, const struct kernel_param *kp) {
 /**
  * bdrm_get_bd_names() - Deletes by index*** of bdev from printed list
  */
-static int bdrm_delete_bd(const char *arg, const struct kernel_param *kp) {
+static int bdrm_delete_bd(const char *arg, const struct kernel_param *kp) { // fix it.
     int index = convert_to_int(arg) - 1;
 
     bdev_release(bd_vector->arr[index].bdev_handler);
@@ -364,8 +385,7 @@ static int bdrm_delete_bd(const char *arg, const struct kernel_param *kp) {
     return 0;
 }
 
-static int bdrm_set_redirect_bd(const char *arg,
-                                                                const struct kernel_param *kp) {
+static int bdrm_set_redirect_bd(const char *arg,const struct kernel_param *kp) {
     int index = convert_to_int(arg) - 1;
 
     current_redirect_bd_manager = &bd_vector->arr[index];
