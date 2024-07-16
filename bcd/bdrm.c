@@ -7,7 +7,9 @@ MODULE_LICENSE("Dual MIT/GPL");
 
 #define INIT_VECTOR_CAP 4
 #define MAX_BD_NAME_LENGTH 15
+#define MAIN_BLKDEV_NAME "bdrm"
 
+static int disk_count = 0;
 static int major;
 static char *current_bd_name;
 static char *current_bd_path;
@@ -36,22 +38,25 @@ static vector *bd_vector;
 static int vector_init(void) {
     bd_vector = kzalloc(sizeof(vector), GFP_KERNEL);
     if (!bd_vector) {
-        pr_err("memory allocation failed\n");
-        return -ENOMEM;
+        goto mem_err;
     }
 
     bd_vector->capacity = INIT_VECTOR_CAP;
     bd_vector->size = 0;
     bd_vector->arr = kzalloc(sizeof(struct bd_manager *) * bd_vector->capacity, GFP_KERNEL);
     if (!bd_vector->arr) {
-        pr_err("memory allocation failed\n");
-        return -ENOMEM;
+        goto mem_err;
     }
     return 0;
+
+mem_err:
+    pr_err("memory allocation failed\n");
+    return -ENOMEM;
 }
 
 static int vector_add_bdev_to_disk(struct bd_manager *current_bdev_manager, char *disk_name) {
-    pr_info("%s", disk_name);
+    pr_info("adding bdev to disk: %s", disk_name);
+    
     for (int i = 0; i < bd_vector->size; i ++) {
         if (bd_vector->arr[i].from_disk->disk_name == disk_name) {
             bd_vector->arr[i].bdev_handler = current_bdev_manager->bdev_handler;
@@ -113,24 +118,42 @@ static int __init bdrm_init(void) {
 
     vector_init();
 
+    major = register_blkdev(0, MAIN_BLKDEV_NAME);
+
+    if (major < 0) {
+        pr_err("unable to register mybdev block device\n");
+        return -ENOMEM;
+    }
+
     return 0;
 }
 
 static void __exit bdrm_exit(void) {
-    if (current_bd_name != NULL) {
+    if (!current_bd_name) {
         kfree(current_bd_name);
     }
-    if (bd_vector->arr != NULL) {
-        kfree(bd_vector->arr);
+    if (!current_bd_path) {
+        kfree(current_bd_path);
     }
-
+    if (!bd_vector->arr) {
+        for (int i = 0; i < bd_vector->size; i ++) {
+            if (bd_vector->arr[i].bdev_handler) {
+                kfree(bd_vector->arr[i].bdev_handler);
+            }
+            if (bd_vector->arr[i].from_disk) {
+                kfree(bd_vector->arr[i].from_disk);
+            }
+            kfree(&bd_vector->arr[i]);
+        }
+        
+    }
+    // add unregister
     pr_info("BD checker module exit\n");
 }
 
 /**
  * bdrm_submit_bio() - takes the provided bio, allocates a clone (child)
- * for a redirect_bd. Although, it changes the way both bio's will end and submits
- * them.
+ * for a redirect_bd. Although, it changes the way both bio's will end and submits them.
  * @bio - Expected bio request
  */
 static void bdrm_submit_bio(struct bio *bio) {
@@ -141,14 +164,17 @@ static void bdrm_submit_bio(struct bio *bio) {
     }
 
     struct bio *clone;
-    int error;
 
     set_capacity(current_redirect_bd_manager->from_disk, get_capacity(bio->bi_bdev->bd_disk));
 
     // current_redirect_bd_manager->bdev_handler->bdev->bd_disk = current_redirect_bd_manager->from_disk;
 
+    struct bio_set *pool = kzalloc(sizeof(struct bio_set), GFP_KERNEL);
+    
+    bioset_init(pool, BIO_POOL_SIZE, 0, BIOSET_NEED_BVECS);
+
     clone = bio_alloc_clone(current_redirect_bd_manager->bdev_handler->bdev, bio,
-                                                    GFP_KERNEL, bio->bi_pool);
+                                                    GFP_KERNEL, pool);
 
     if (!clone) {
         pr_err("bio allocation failed\n");
@@ -158,8 +184,6 @@ static void bdrm_submit_bio(struct bio *bio) {
     // clone->bi_end_io = bio->bi_end_io; // how to close the parent, when child dies
     bio_chain(clone, bio);
 	
-	bio_endio(bio);
-
     submit_bio(clone);
 }
 
@@ -169,8 +193,7 @@ static const struct block_device_operations bdrm_bio_ops = {
 };
 
 /**
- * set_bd_name_and_path() - Sets static current_bd_name and current_bd_paht
- * according to @arg
+ * set_bd_name_and_path() - Sets static current_bd_name and current_bd_path according to @arg
  * @arg - user input from parameter
  */
 static int set_bd_name_and_path(char *arg) {
@@ -189,18 +212,15 @@ static int set_bd_name_and_path(char *arg) {
     current_bd_path = kzalloc(sizeof(char) * (len + 1), GFP_KERNEL);
     current_bd_name = kzalloc(sizeof(char) * (len), GFP_KERNEL);
 
-    pr_info("%s", current_bd_path);
-
     if (!current_bd_name) {
-        pr_err("memory allocation failed\n");
-        return -ENOMEM;
+        kfree(current_bd_path);
+        goto mem_err;
     } else if (!current_bd_path) {
         kfree(current_bd_name);
-        pr_err("memory allocation failed\n");
-        return -ENOMEM;
+        goto mem_err;
     }
-    // Using GFP_KERNEL means that allocation function can put the current process
-    // to sleep, waiting for a page, when called in low-memory situations.
+    /* Using GFP_KERNEL means that allocation function can put the current process
+       to sleep, waiting for a page, when called in low-memory situations. */
 
     strcpy(current_bd_path, arg);
     strncpy(current_bd_name, arg, len);
@@ -208,6 +228,10 @@ static int set_bd_name_and_path(char *arg) {
     pr_info("name set up succesfully\n");
 
     return 0;
+
+mem_err:
+    pr_err("memory allocation failed\n");
+    return -ENOMEM;
 }
 
 static struct bdev_handle *open_bd_on_rw(char *bd_path) {
@@ -218,30 +242,25 @@ static struct bdev_handle *open_bd_on_rw(char *bd_path) {
  * init_bd() - Initialises gendisk structure, for 'local' disk
  * @bd_name: name of creating BD
  *
- * DOESN'T SET UP THE DISK'S capacity, check bdrm_submit_bio()
+ * DOESN'T SET UP the disks capacity, check bdrm_submit_bio()
+ * AND DOESN'T ADD disk if there was one already TO FIX
  */
 static struct gendisk *init_disk_bd(char *bd_name) {
 
     int status;
     struct gendisk *new_disk;
 
-    major = register_blkdev(0, bd_name);
-
-    if (major < 0) {
-        pr_err("unable to register mybdev block device\n");
-        return NULL;
-    }
-
     new_disk = blk_alloc_disk(NUMA_NO_NODE);
 
     new_disk->major = major;
     new_disk->first_minor = 1;
-    new_disk->minors = 1;
+    new_disk->minors = 1 + disk_count;
     new_disk->flags = GENHD_FL_NO_PART;
     new_disk->fops = &bdrm_bio_ops;
+    disk_count++;
 
     if (bd_name) {
-        strcpy(new_disk->disk_name, bd_name); // FIX NEEDED
+        strcpy(new_disk->disk_name, bd_name);
     } else {
         /* all in all - it can't happen, due to prev. checks in set_bd_name_and_path */
         pr_warn("bd_name is NULL, nothing to copy\n");
@@ -249,8 +268,7 @@ static struct gendisk *init_disk_bd(char *bd_name) {
         goto free_bd_meta;
     }
     
-
-    status = add_disk(new_disk);
+    status = add_disk(new_disk); // FIX: try to add disk to device by device_add_disk
 
     if (status) {
         put_disk(new_disk);
@@ -270,7 +288,6 @@ free_bd_meta:
  */
 static int check_and_open_bd(int index) {
 
-    int status;
     int error;
     struct bdev_handle *current_bdev_handle = kmalloc(sizeof(struct bdev_handle), GFP_KERNEL);
     struct bd_manager *current_bdev_manager = kmalloc(sizeof(struct bd_manager), GFP_KERNEL);
@@ -279,11 +296,9 @@ static int check_and_open_bd(int index) {
 
     if (IS_ERR(current_bdev_handle)) { 
         pr_err("%s name is free\n", current_bd_name);
-        pr_err("%s", current_bd_path);
+        pr_err("%s path", current_bd_path);
         goto free_bdev;
     }
-
-    pr_info("check and create: lookup returned %d\n", status);
 
 	current_bdev_manager->bdev_handler = current_bdev_handle;
     current_bdev_manager->bd_name = current_bd_name;
@@ -291,7 +306,7 @@ static int check_and_open_bd(int index) {
 	error = vector_add_bdev_to_disk(current_bdev_manager, vector_get_bd_manager_by_index(index - 1)->from_disk->disk_name);
     
 	if (error) {
-		pr_err("vector add failed\n");
+		pr_err("vector add failed: no disk with such name\n");
         goto free_bdev;
     }
 
@@ -300,9 +315,8 @@ static int check_and_open_bd(int index) {
     return 0;
 
 free_bdev:
-    kfree(current_bdev_handle);
     kfree(current_bdev_manager);
-    return -ENOMEM;
+    return PTR_ERR(current_bdev_handle);
 }
 
 /**
@@ -320,29 +334,34 @@ static int bdrm_set_bd_name(const char *arg, const struct kernel_param *kp) {
     disk_name = kzalloc(sizeof(char) * (len), GFP_KERNEL);
 
     if (!disk_name) {
-        pr_err("memory allocation failed\n");
-        return -ENOMEM;
-    } 
+        goto mem_err;
+    }
 
     strncpy(disk_name, arg, len);
     disk_name[len - 1] = '\0';
     
     if (!disk_name) {
-        pr_err("smth went wrong\n");
-        return -ENOMEM;
+        goto mem_err;
     }
 
-    pr_info("disk name set up succesfully\n");
-    pr_info("%s", disk_name);
+    pr_info("disk name: %s set up succesfully\n", disk_name);
 
     new_disk = init_disk_bd(disk_name);
     status = vector_add_disk(new_disk);
     
+    if (disk_name) {
+        kfree(disk_name);
+    }
+
     if (IS_ERR(status)) {
         return PTR_ERR(status);
     }
     
     return 0;
+
+mem_err:
+    pr_err("memory allocation failed\n");
+    return -ENOMEM;
 }
 
 
@@ -350,7 +369,7 @@ static int bdrm_set_bd_name(const char *arg, const struct kernel_param *kp) {
  * bdrm_get_bd_names() - Function that prints the list of block devices, that
  * are stored in vector.
  *
- * Vector stores only BD's that were touched from this module.
+ * Vector stores only BD's that we've touched from this module.
  */
 static int bdrm_get_bd_names(char *buf, const struct kernel_param *kp) {
 
@@ -369,15 +388,18 @@ static int bdrm_get_bd_names(char *buf, const struct kernel_param *kp) {
         return -ENOMEM;
     }
 
-    // Concatenate each name to the string
+    // concatenate each name to the string
     for (int i = 0; i < bd_vector->size; i++) {
-        int name_length = strlen(bd_vector->arr[i].from_disk->disk_name);
-        offset += sprintf(names_list + offset, "%d. %s", i + 1,
+        offset += sprintf(names_list + offset, "%d. %s\n", i + 1,
                                             bd_vector->arr[i].from_disk->disk_name);
     }
 
     strcpy(buf, names_list);
-
+    
+    if (!names_list) {
+        kfree(names_list);
+    }
+    
     return total_length;
 }
 
@@ -400,7 +422,6 @@ static int bdrm_delete_bd(const char *arg, const struct kernel_param *kp) { // f
  * This function takes the name of the BD and makes it the aim of the redirect operation.
  * @bd_name - bd_name, that will be redirected to
  */
-
 static int bdrm_set_redirect_bd(const char *arg,const struct kernel_param *kp) {
     
     int status;
@@ -408,7 +429,7 @@ static int bdrm_set_redirect_bd(const char *arg,const struct kernel_param *kp) {
     char name[MAX_BD_NAME_LENGTH];
 
     if (sscanf(arg, "%d %s", &index, name) != 2) {
-        pr_err("wrong input\n");
+        pr_err("wrong input, 2 values are required\n");
         return -EINVAL;
     }
 
