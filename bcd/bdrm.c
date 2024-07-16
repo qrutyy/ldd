@@ -13,7 +13,7 @@ static int disk_count = 0;
 static int major;
 static char *current_bd_name;
 static char *current_bd_path;
-static struct bd_manager *current_redirect_bd_manager;
+static struct bd_manager *current_redirect_bd_manager; // 'bd in the middle'
 
 typedef struct vector {
     int size;
@@ -158,22 +158,23 @@ static void __exit bdrm_exit(void) {
  */
 static void bdrm_submit_bio(struct bio *bio) {
 
+    pr_info("entered submit bio\n");
+
     if (!current_redirect_bd_manager) {
         pr_err("Redirect_bd wasn't set\n");
         return;
     }
 
-    struct bio *clone;
-
-    set_capacity(current_redirect_bd_manager->from_disk, get_capacity(bio->bi_bdev->bd_disk));
-
-    // current_redirect_bd_manager->bdev_handler->bdev->bd_disk = current_redirect_bd_manager->from_disk;
+    // set_capacity(current_redirect_bd_manager->from_disk, get_capacity(bio->bi_bdev->bd_disk));
+    // i was setting capacity referencing to the capacity of disk that is first the source of the stream
+    
+    pr_info("set capacity: %lld \n", get_capacity(bio->bi_bdev->bd_disk));
 
     struct bio_set *pool = kzalloc(sizeof(struct bio_set), GFP_KERNEL);
     
     bioset_init(pool, BIO_POOL_SIZE, 0, BIOSET_NEED_BVECS);
 
-    clone = bio_alloc_clone(current_redirect_bd_manager->bdev_handler->bdev, bio,
+    struct bio *clone = bio_alloc_clone(current_redirect_bd_manager->bdev_handler->bdev, bio,
                                                     GFP_KERNEL, pool);
 
     if (!clone) {
@@ -181,7 +182,6 @@ static void bdrm_submit_bio(struct bio *bio) {
         return;
     }
 
-    // clone->bi_end_io = bio->bi_end_io; // how to close the parent, when child dies
     bio_chain(clone, bio);
 	
     submit_bio(clone);
@@ -269,6 +269,9 @@ static struct gendisk *init_disk_bd(char *bd_name) {
     }
     
     status = add_disk(new_disk); // FIX: try to add disk to device by device_add_disk
+
+    pr_info("status after add_disk with name %s: %d\n", bd_name, status);
+
 
     if (status) {
         put_disk(new_disk);
@@ -482,3 +485,11 @@ module_param_cb(set_redirect_bd, &bdrm_redirect_ops, NULL, S_IWUSR);
 
 module_init(bdrm_init);
 module_exit(bdrm_exit);
+
+
+/**
+ * ISSUES TO FIX:
+ * 1. Release
+ * 2. Disk capacity set, that causes submit being not called.
+ * 3. Multiple disks creation
+ */
