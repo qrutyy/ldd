@@ -11,7 +11,7 @@ MODULE_LICENSE("Dual MIT/GPL");
 #define MAX_BD_NAME_LENGTH 15
 #define MAIN_BLKDEV_NAME "bdr"
 
-static int current_redirect_pair_index;
+static int current_redirect_pair_index = 0;
 static int major;
 struct bio_set *pool;
 
@@ -76,9 +76,7 @@ static int vector_add_bd(struct blkdev_manager *current_bdev_manager)
 static int vector_check_bd_manager_by_name(char *bd_name)
 {
 	int i;
-	
-	pr_info("Vector check input name: %s, real name: %s\n", bd_name, bd_vector->arr[0].bd_name);
-	
+
 	for (i = 0; i < bd_vector->size; i ++) {
 		if (bd_vector->arr[i].middle_disk->disk_name == bd_name && bd_vector->arr[i].bdev_handler != NULL)
 			return 0;
@@ -97,50 +95,6 @@ static int convert_to_int(const char *arg)
 	return (int)number;
 }
 
-static int __init bdr_init(void)
-{
-
-	pr_info("BD checker module init\n");
-
-	vector_init();
-
-	major = register_blkdev(0, MAIN_BLKDEV_NAME);
-
-	if (major < 0) {
-		pr_err("Unable to register mybdev block device\n");
-		return -EIO;
-	}
-
-	pool = kzalloc(sizeof(struct bio_set), GFP_KERNEL);
-
-	if (!pool) {
-		pr_info("hahahah\n");
-		goto mem_err;
-	}
-
-	return 0;
-mem_err:
-	kfree(pool);
-	pr_err("Memory allocation failed\n");
-	return -ENOMEM;
-}
-
-static void __exit bdr_exit(void)
-{	
-	int i;
-
-	if (!bd_vector->arr) {
-		for (i = 0; i < bd_vector->size; i ++) {
-			bdr_delete_bd(i + 1);
-			kfree(&bd_vector->arr[i]);
-		}
-		kfree(bd_vector);
-	}
-	unregister_blkdev(major, MAIN_BLKDEV_NAME);
-	
-	pr_info("BD checker module exit\n");
-}
-
 static int check_bio_link(struct bio *bio)
 {
 	if (vector_check_bd_manager_by_name(bio->bi_bdev->bd_disk->disk_name)) {
@@ -149,6 +103,11 @@ static int check_bio_link(struct bio *bio)
 	}
 
 	return 0;
+}
+
+static struct bdev_handle *open_bd_on_rw(char *bd_path)
+{
+	return bdev_open_by_path(bd_path, BLK_OPEN_WRITE | BLK_OPEN_READ, NULL, NULL);
 }
 
 /**
@@ -178,8 +137,9 @@ static void bdr_submit_bio(struct bio *bio)
 	}
 
 	current_redirect_manager = bd_vector->arr[current_redirect_pair_index];
+	pr_info("3\n");
 	clone = bio_alloc_clone(current_redirect_manager.bdev_handler->bdev, bio, GFP_KERNEL, pool);
-
+	pr_info("4\n");
 	if (!clone) {
 		pr_err("Bio allocation failed\n");
 		bio_io_error(bio);
@@ -196,13 +156,8 @@ static const struct block_device_operations bdr_bio_ops = {
 		.submit_bio = bdr_submit_bio,
 };
 
-static struct bdev_handle *open_bd_on_rw(char *bd_path)
-{
-	return bdev_open_by_path(bd_path, BLK_OPEN_WRITE | BLK_OPEN_READ, NULL, NULL);
-}
-
 /**
- * init_bd() - Initialises gendisk structure, for 'local' disk
+ * init_disk_bd() - Initialises gendisk structure, for 'local' disk
  * @bd_name: name of creating BD
  *
  * DOESN'T SET UP the disks capacity, check bdr_submit_bio()
@@ -306,36 +261,54 @@ static int create_bd(int name_index)
 
 	if (!disk_name)
 		goto mem_err;
-	
+
 	new_disk = init_disk_bd(disk_name);
-	
-	if (!new_disk) 
+
+	if (!new_disk) {
+		kfree(disk_name);
 		goto disk_init_err;
+	}
 
 	bd_vector->arr[bd_vector->size - 1].middle_disk = new_disk;
 	bd_vector->arr[bd_vector->size - 1].bd_name = disk_name;
 
+	status = add_disk(new_disk);
+	
 	pr_info("Status after add_disk with name %s: %d\n", disk_name, status);
 
-	status = add_disk(new_disk);
-
+	kfree(disk_name);
+	
 	if (status) {
 		put_disk(new_disk);
 		goto disk_init_err;
 	}
 	
-	kfree(disk_name);
-
 	return 0;
 mem_err:
 	kfree(disk_name);
 	pr_err("Memory allocation failed\n");
 	return -ENOMEM;
 disk_init_err:
-	kfree(disk_name);
 	kfree(new_disk);
 	pr_err("Disk initialization failed\n");
-	return -ENOMEM; //CHANGE	
+	return -ENOMEM;
+}
+
+static int delete_bd(int index) // To add checks
+{
+	if (!bd_vector->arr[index].bdev_handler) {
+		bdev_release(bd_vector->arr[index].bdev_handler);
+		bd_vector->arr[index].bdev_handler = NULL;
+	}
+	if (!bd_vector->arr[index].middle_disk) {
+		del_gendisk(bd_vector->arr[index].middle_disk);
+		put_disk(bd_vector->arr[index].middle_disk);
+		bd_vector->arr[index].middle_disk = NULL;
+	}
+
+	pr_info("Removed bdev with index %d (from list)", index + 1);
+
+	return 0;
 }
 
 /**
@@ -347,15 +320,17 @@ disk_init_err:
 static int bdr_get_bd_names(char *buf, const struct kernel_param *kp)
 {
 	char *names_list = NULL;
+	struct blkdev_manager *current_manager;
 	int total_length = 0;
 	int offset = 0;
 	int i = 0;
 	int i_increased;
 
-	for (i = 0; i < bd_vector->size; i++) 
-	{
+	for (i = 0; i < bd_vector->size; i++)
+	{	
+		current_manager = &bd_vector->arr[i];
 		i_increased = i + 1;
-		total_length += sprintf("%d. %s\n", i_increased, bd_vector->arr[i].middle_disk->disk_name );
+		total_length += sprintf("%d. %s -> %s\n", i_increased, current_manager->middle_disk->disk_name, current_manager->bdev_handler->bdev->bd_disk->disk_name);
 	}
 
 	names_list = (char *)kzalloc(total_length + 1, GFP_KERNEL);
@@ -368,8 +343,9 @@ static int bdr_get_bd_names(char *buf, const struct kernel_param *kp)
 
 	for (i = 0; i < bd_vector->size; i++) 
 	{
+		current_manager = &bd_vector->arr[i];
 		i_increased = i + 1;
-		offset += sprintf(names_list + offset, "%d. %s\n", i_increased, bd_vector->arr[i].middle_disk->disk_name);
+		offset += sprintf(names_list + offset, "%d. %s -> %s\n", i_increased, current_manager->middle_disk->disk_name, current_manager->bdev_handler->bdev->bd_disk->disk_name);
 	}
 
 	strcpy(buf, names_list);
@@ -385,19 +361,7 @@ static int bdr_get_bd_names(char *buf, const struct kernel_param *kp)
 static int bdr_delete_bd(const char *arg, const struct kernel_param *kp) 
 {
 	int index = convert_to_int(arg) - 1;
-	
-	if (bd_vector->arr[index] != NULL) {
-		
-		bdev_release(bd_vector->arr[index].bdev_handler);
-		bd_vector->arr[i].bdev_handler = NULL;
-
-		del_gendisk(bd_vector->arr[index].middle_disk);
-		put_disk(bd_vector->arr[index].middle_disk);
-		bd_vector->arr[index].middle_disk = NULL;
-	}
-	
-
-	pr_info("Removed bdev with index %d (from list)", index + 1);
+	delete_bd(index);
 
 	return 0;
 }
@@ -417,24 +381,67 @@ static int bdr_set_redirect_bd(const char *arg,const struct kernel_param *kp)
 		return -EINVAL;
 	}
 
-	if (bd_vector->arr[bd_vector->size - 1].bd_name != NULL) {
-		pr_warn("This redirection pair is already set up\n");
-		pr_warn("Rewriting the prev. pair...\n");
-	}
+	// if (bd_vector->arr[bd_vector->size - 1].bd_name != NULL) {
+	// 	pr_warn("This redirection pair is already set up\n");
+	// 	pr_warn("Rewriting the prev. pair...\n");
+	// }
 
 	status = check_and_open_bd(path);
 
-	current_redirect_pair_index = bd_vector->size - 1;
-
 	if (status)
 		return PTR_ERR(&status);
-	
+
 	status = create_bd(index);
 
 	if (status) 
 		return PTR_ERR(&status);
+
+	current_redirect_pair_index = bd_vector->size - 1;
 	
 	return 0;
+}
+
+static int __init bdr_init(void)
+{
+	pr_info("BD checker module init\n");
+
+	vector_init();
+
+	major = register_blkdev(0, MAIN_BLKDEV_NAME);
+
+	if (major < 0) {
+		pr_err("Unable to register mybdev block device\n");
+		return -EIO;
+	}
+
+	pool = kzalloc(sizeof(struct bio_set), GFP_KERNEL);
+
+	if (!pool) {
+		goto mem_err;
+	}
+
+	return 0;
+mem_err:
+	kfree(pool);
+	pr_err("Memory allocation failed\n");
+	return -ENOMEM;
+}
+
+static void __exit bdr_exit(void)
+{
+	int i;
+
+	if (!bd_vector->arr) {
+		for (i = 0; i < bd_vector->size; i ++) {
+			delete_bd(i + 1);
+			kfree(&bd_vector->arr[i]);
+		}
+		kfree(bd_vector);
+	}
+	kfree(pool);
+	unregister_blkdev(major, MAIN_BLKDEV_NAME);
+
+	pr_info("BD checker module exit\n");
 }
 
 static const struct kernel_param_ops bdr_delete_ops = {
@@ -463,11 +470,3 @@ module_param_cb(set_redirect_bd, &bdr_redirect_ops, NULL, S_IWUSR);
 
 module_init(bdr_init);
 module_exit(bdr_exit);
-
-
-/**
- * ISSUES TO FIX:
- * done. Release, but fix the delete fun
- * 3. Multiple disks creation
- * disk_release
- */
