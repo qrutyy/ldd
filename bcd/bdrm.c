@@ -69,7 +69,7 @@ static int vector_add_bd(struct blkdev_manager *current_bdev_manager)
 
 	bd_vector->arr[bd_vector->size] = *current_bdev_manager;
 	bd_vector->size++;
-	
+
 	return 0;
 }
 
@@ -118,8 +118,7 @@ static struct bdev_handle *open_bd_on_rw(char *bd_path)
 static void bdr_submit_bio(struct bio *bio)
 {
 	struct bio *clone;
-	int status;
-	struct blkdev_manager current_redirect_manager;
+	struct blkdev_manager *current_redirect_manager;
 
 	pr_info("Entered submit bio\n");
 
@@ -128,18 +127,10 @@ static void bdr_submit_bio(struct bio *bio)
 		return;
 	}
 
-	status = bioset_init(pool, BIO_POOL_SIZE, 0, 0);
+	pr_debug("Redirect index in vector = %d\n", current_redirect_pair_index);
 
-	if (status) {
-		pr_err("Couldn't allocate bio set");
-		kfree(pool);
-		return;
-	}
-
-	current_redirect_manager = bd_vector->arr[current_redirect_pair_index];
-	pr_info("3\n");
-	clone = bio_alloc_clone(current_redirect_manager.bdev_handler->bdev, bio, GFP_KERNEL, pool);
-	pr_info("4\n");
+	current_redirect_manager = &bd_vector->arr[current_redirect_pair_index];
+	clone = bio_alloc_clone(current_redirect_manager->bdev_handler->bdev, bio, GFP_KERNEL, pool);
 	if (!clone) {
 		pr_err("Bio allocation failed\n");
 		bio_io_error(bio);
@@ -148,6 +139,7 @@ static void bdr_submit_bio(struct bio *bio)
 
 	bio_chain(clone, bio);
 	submit_bio(clone);
+	pr_info("Submitted bio\n");
 	bio_endio(bio);
 }
 
@@ -169,6 +161,7 @@ static struct gendisk *init_disk_bd(char *bd_name)
 	struct blkdev_manager *linked_manager = NULL;
 
 	new_disk = blk_alloc_disk(NUMA_NO_NODE);
+
 	new_disk->major = major;
 	new_disk->first_minor = 1;
 	new_disk->minors = bd_vector->size;
@@ -184,12 +177,7 @@ static struct gendisk *init_disk_bd(char *bd_name)
 	}
 
 	linked_manager = &bd_vector->arr[bd_vector->size - 1];
-	linked_manager->bd_name = bd_name;
-	
-	pr_info("Set capacity: %lld \n", get_capacity(linked_manager->bdev_handler->bdev->bd_disk));
 	set_capacity(new_disk, get_capacity(linked_manager->bdev_handler->bdev->bd_disk));
-
-	kfree(linked_manager);
 
 	return new_disk;
 
@@ -218,7 +206,6 @@ static int check_and_open_bd(char *bd_path)
 	}
 
 	current_bdev_manager->bdev_handler = current_bdev_handle;
-	
 	vector_add_bd(current_bdev_manager);
 	
 	if (error) {
@@ -256,7 +243,7 @@ static int create_bd(int name_index)
 	char *disk_name = NULL;
 	int status;
 	struct gendisk *new_disk = NULL;
-	
+
 	disk_name = create_disk_name_by_index(name_index);
 
 	if (!disk_name)
@@ -320,7 +307,7 @@ static int delete_bd(int index) // To add checks
 static int bdr_get_bd_names(char *buf, const struct kernel_param *kp)
 {
 	char *names_list = NULL;
-	struct blkdev_manager *current_manager;
+	struct blkdev_manager current_manager;
 	int total_length = 0;
 	int offset = 0;
 	int i = 0;
@@ -328,9 +315,9 @@ static int bdr_get_bd_names(char *buf, const struct kernel_param *kp)
 
 	for (i = 0; i < bd_vector->size; i++)
 	{	
-		current_manager = &bd_vector->arr[i];
+		current_manager = bd_vector->arr[i];
 		i_increased = i + 1;
-		total_length += sprintf("%d. %s -> %s\n", i_increased, current_manager->middle_disk->disk_name, current_manager->bdev_handler->bdev->bd_disk->disk_name);
+		total_length += sprintf("%d. %s -> %s\n", i_increased, current_manager.middle_disk->disk_name, current_manager.bdev_handler->bdev->bd_disk->disk_name);
 	}
 
 	names_list = (char *)kzalloc(total_length + 1, GFP_KERNEL);
@@ -343,9 +330,9 @@ static int bdr_get_bd_names(char *buf, const struct kernel_param *kp)
 
 	for (i = 0; i < bd_vector->size; i++) 
 	{
-		current_manager = &bd_vector->arr[i];
+		current_manager = bd_vector->arr[i];
 		i_increased = i + 1;
-		offset += sprintf(names_list + offset, "%d. %s -> %s\n", i_increased, current_manager->middle_disk->disk_name, current_manager->bdev_handler->bdev->bd_disk->disk_name);
+		offset += sprintf(names_list + offset, "%d. %s -> %s\n", i_increased, current_manager.middle_disk->disk_name, current_manager.bdev_handler->bdev->bd_disk->disk_name);
 	}
 
 	strcpy(buf, names_list);
@@ -381,10 +368,8 @@ static int bdr_set_redirect_bd(const char *arg,const struct kernel_param *kp)
 		return -EINVAL;
 	}
 
-	// if (bd_vector->arr[bd_vector->size - 1].bd_name != NULL) {
-	// 	pr_warn("This redirection pair is already set up\n");
-	// 	pr_warn("Rewriting the prev. pair...\n");
-	// }
+	current_redirect_pair_index = bd_vector->size;
+
 
 	status = check_and_open_bd(path);
 
@@ -395,18 +380,16 @@ static int bdr_set_redirect_bd(const char *arg,const struct kernel_param *kp)
 
 	if (status) 
 		return PTR_ERR(&status);
-
-	current_redirect_pair_index = bd_vector->size - 1;
 	
 	return 0;
 }
 
 static int __init bdr_init(void)
 {
+	int status;
+	
 	pr_info("BD checker module init\n");
-
 	vector_init();
-
 	major = register_blkdev(0, MAIN_BLKDEV_NAME);
 
 	if (major < 0) {
@@ -417,6 +400,13 @@ static int __init bdr_init(void)
 	pool = kzalloc(sizeof(struct bio_set), GFP_KERNEL);
 
 	if (!pool) {
+		goto mem_err;
+	}
+
+	status = bioset_init(pool, BIO_POOL_SIZE, 0, 0);
+
+	if (status) {
+		pr_err("Couldn't allocate bio set");
 		goto mem_err;
 	}
 
@@ -438,6 +428,7 @@ static void __exit bdr_exit(void)
 		}
 		kfree(bd_vector);
 	}
+	bioset_exit(pool);
 	kfree(pool);
 	unregister_blkdev(major, MAIN_BLKDEV_NAME);
 
