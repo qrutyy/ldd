@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0-only
+
 #include <linux/blkdev.h>
 #include <linux/moduleparam.h>
 
@@ -13,17 +15,14 @@ static int current_redirect_pair_index;
 static int major;
 struct bio_set *pool;
 
-typedef struct vector
-{
+typedef struct vector {
 	int size;
 	int capacity;
 	struct blkdev_manager *arr;
 } vector;
 
-typedef struct blkdev_manager
-{ 
-	char *bd_path;
-	char *bd_name; // TODO init or remove  if init - add free
+typedef struct blkdev_manager { 
+	char *bd_name;
 	struct gendisk *middle_disk; 
 	struct bdev_handle *bdev_handler;
 } blkdev_manager;
@@ -126,8 +125,8 @@ mem_err:
 	return -ENOMEM;
 }
 
-static void __exit bdr_exit(void) {
-	
+static void __exit bdr_exit(void)
+{	
 	int i = 0;
 
 	if (!bd_vector->arr) {
@@ -147,8 +146,8 @@ static void __exit bdr_exit(void) {
 	pr_info("BD checker module exit\n");
 }
 
-static int check_bio_link(struct bio *bio) {
-
+static int check_bio_link(struct bio *bio)
+{
 	if (vector_check_bd_manager_by_name(bio->bi_bdev->bd_disk->disk_name)) {
 		pr_err("No such bd_manager with middle disk %s and not empty handler\n", bio->bi_bdev->bd_disk->disk_name);
 		return -EINVAL;
@@ -162,7 +161,8 @@ static int check_bio_link(struct bio *bio) {
  * for a redirect_bd. Although, it changes the way both bio's will end and submits them.
  * @bio - Expected bio request
  */
-static void bdr_submit_bio(struct bio *bio) {
+static void bdr_submit_bio(struct bio *bio)
+{
 	struct bio *clone;
 	int status;
 	struct blkdev_manager current_redirect_manager;
@@ -201,7 +201,8 @@ static const struct block_device_operations bdr_bio_ops = {
 		.submit_bio = bdr_submit_bio,
 };
 
-static struct bdev_handle *open_bd_on_rw(char *bd_path) {
+static struct bdev_handle *open_bd_on_rw(char *bd_path)
+{
 	return bdev_open_by_path(bd_path, BLK_OPEN_WRITE | BLK_OPEN_READ, NULL, NULL);
 }
 
@@ -212,8 +213,8 @@ static struct bdev_handle *open_bd_on_rw(char *bd_path) {
  * DOESN'T SET UP the disks capacity, check bdr_submit_bio()
  * AND DOESN'T ADD disk if there was one already TO FIX
  */
-static struct gendisk *init_disk_bd(char *bd_name) {
-
+static struct gendisk *init_disk_bd(char *bd_name)
+{
 	struct gendisk *new_disk = NULL;
 	struct blkdev_manager *linked_manager = NULL;
 
@@ -253,8 +254,8 @@ free_bd_meta:
  * check_and_open_bd() - Checks if name is occupied, if so - opens the BD, if
  * not - return -EINVAL.
  */
-static int check_and_open_bd(char *bd_path) {
-
+static int check_and_open_bd(char *bd_path)
+{
 	int error;
 	struct blkdev_manager *current_bdev_manager = kmalloc(sizeof(struct blkdev_manager), GFP_KERNEL);
 	struct bdev_handle *current_bdev_handle = NULL;
@@ -262,7 +263,7 @@ static int check_and_open_bd(char *bd_path) {
 	current_bdev_handle = open_bd_on_rw(bd_path);
 
 	if (IS_ERR(current_bdev_handle)) { 
-		pr_err("%s path", bd_path);
+		pr_err("Couldnt open bd by path: %s\n", bd_path);
 		goto free_bdev;
 	}
 
@@ -271,11 +272,11 @@ static int check_and_open_bd(char *bd_path) {
 	vector_add_bd(current_bdev_manager);
 	
 	if (error) {
-		pr_err("vector add failed: no disk with such name\n");
+		pr_err("Vector add failed: no disk with such name\n");
 		goto free_bdev;
 	}
 
-	pr_info("vector succesfully supplemented\n");
+	pr_info("Vector succesfully supplemented\n");
 
 	return 0;
 
@@ -284,7 +285,8 @@ free_bdev:
 	return PTR_ERR(current_bdev_handle);
 }
 
-static char* create_disk_name_by_index(int index) {
+static char* create_disk_name_by_index(int index)
+{
 	char* disk_name = kmalloc(strlen(MAIN_BLKDEV_NAME) + snprintf(NULL, 0, "%d", index) + 1, GFP_KERNEL); 
 
 	if (disk_name != NULL)
@@ -299,8 +301,8 @@ static char* create_disk_name_by_index(int index) {
  * 
  * @name_index - an index for disk name (make sense only in name displaying, DOESN'T SYNC WITH VECTOR INDICES)
  */
-static int create_bd(int name_index) {
-
+static int create_bd(int name_index)
+{
 	char *disk_name = NULL;
 	int status;
 	struct gendisk *new_disk = NULL;
@@ -318,7 +320,7 @@ static int create_bd(int name_index) {
 	bd_vector->arr[bd_vector->size - 1].middle_disk = new_disk;
 	bd_vector->arr[bd_vector->size - 1].bd_name = disk_name;
 
-	pr_info("status after add_disk with name %s: %d\n", disk_name, status);
+	pr_info("Status after add_disk with name %s: %d\n", disk_name, status);
 
 	status = add_disk(new_disk);
 
@@ -347,8 +349,8 @@ disk_init_err:
  *
  * Vector stores only BD's that we've touched from this module.
  */
-static int bdr_get_bd_names(char *buf, const struct kernel_param *kp) {
-
+static int bdr_get_bd_names(char *buf, const struct kernel_param *kp)
+{
 	char *names_list = NULL;
 	int total_length = 0;
 	int offset = 0;
@@ -365,7 +367,7 @@ static int bdr_get_bd_names(char *buf, const struct kernel_param *kp) {
 	
 	if (!names_list) 
 	{
-		pr_err("memory allocation failed\n");
+		pr_err("Memory allocation failed\n");
 		return -ENOMEM;
 	}
 
@@ -401,23 +403,21 @@ static int bdr_delete_bd(const char *arg, const struct kernel_param *kp) { // fi
  * This function takes the name of the BD and makes it the aim of the redirect operation.
  * @arg - "from_bd_name path"  bd_name, that will be redirected to
  */
-static int bdr_set_redirect_bd(const char *arg,const struct kernel_param *kp) {
-	
+static int bdr_set_redirect_bd(const char *arg,const struct kernel_param *kp)
+{
 	int status;
 	int index;
 	char path[MAX_BD_NAME_LENGTH];
 
-	if (sscanf(arg, "%d %s", &index, path) != 2) 
-	{
+	if (sscanf(arg, "%d %s", &index, path) != 2) {
 		pr_err("Wrong input, 2 values are required\n");
 		return -EINVAL;
 	}
 
-	// if (bd_vector->arr[index].bd_name != NULL) // FIX bc it should check the current_pair_index - 1 (last_pair_index)
-	// {
-	// 	pr_warn("This redirection pair is already set up\n");
-	// 	pr_warn("Rewriting the prev. pair...\n");
-	// }
+	if (bd_vector->arr[bd_vector->size - 1].bd_name != NULL) {
+		pr_warn("This redirection pair is already set up\n");
+		pr_warn("Rewriting the prev. pair...\n");
+	}
 
 	status = check_and_open_bd(path);
 
@@ -452,10 +452,10 @@ static const struct kernel_param_ops bdr_redirect_ops = {
 MODULE_PARM_DESC(delete_bd, "Delete BD");
 module_param_cb(delete_bd, &bdr_delete_ops, NULL, S_IWUSR);
 
-MODULE_PARM_DESC(get_bd_names, "Add a new one/Get BD names and indices");
+MODULE_PARM_DESC(get_bd_names, "Get list of disks and their redirect bd's");
 module_param_cb(get_bd_names, &bdr_get_bd_ops, NULL, S_IRUGO | S_IWUSR);
 
-MODULE_PARM_DESC(set_redirect_bd, "Input a BD name. Check if such BD exists, if not - add -> data will redirect to it");
+MODULE_PARM_DESC(set_redirect_bd, "Link local disk with redirect aim bd");
 module_param_cb(set_redirect_bd, &bdr_redirect_ops, NULL, S_IWUSR);
 
 module_init(bdr_init);
@@ -465,13 +465,6 @@ module_exit(bdr_exit);
 /**
  * ISSUES TO FIX:
  * done. Release, but fix the delete fun
- * 2. Disk capacity set, that causes submit being not called. - make init when called redirect
- * delete the set action 
- * set capacity will set it according to the redirect (final) one
  * 3. Multiple disks creation
- * 4. code styl - 2 tabs
- * если доднострочный if и без else то без скобок но с ентером
  * disk_release
- * if err - > replace with if status
- * объявления всегда сверху + пул один раз аллоцировать
  */
