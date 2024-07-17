@@ -127,20 +127,15 @@ mem_err:
 
 static void __exit bdr_exit(void)
 {	
-	int i = 0;
+	int i;
 
 	if (!bd_vector->arr) {
 		for (i = 0; i < bd_vector->size; i ++) {
-			bdev_release(bd_vector->arr[i].bdev_handler);
-
-			kfree(bd_vector->arr[i].bdev_handler);
-			bd_vector->arr[i].bdev_handler = NULL;
-			kfree(bd_vector->arr[i].middle_disk);
+			bdr_delete_bd(i + 1);
 			kfree(&bd_vector->arr[i]);
 		}
 		kfree(bd_vector);
 	}
-
 	unregister_blkdev(major, MAIN_BLKDEV_NAME);
 	
 	pr_info("BD checker module exit\n");
@@ -385,23 +380,31 @@ static int bdr_get_bd_names(char *buf, const struct kernel_param *kp)
 }
 
 /**
- * bdr_get_bd_names() - Deletes by index*** of bdev from printed list // TODO
+ * bdr_delete_bd() - Deletes bdev according to index from printed list (check bdr_get_bd_names)
  */
-static int bdr_delete_bd(const char *arg, const struct kernel_param *kp) { // fix it.
+static int bdr_delete_bd(const char *arg, const struct kernel_param *kp) 
+{
 	int index = convert_to_int(arg) - 1;
+	
+	if (bd_vector->arr[index] != NULL) {
+		
+		bdev_release(bd_vector->arr[index].bdev_handler);
+		bd_vector->arr[i].bdev_handler = NULL;
 
-	bdev_release(bd_vector->arr[index].bdev_handler);
-	// bd_vector->arr[int(arg)].bd_disk-> // TODO: release the bio.
-	bd_vector->arr[index].bdev_handler = &(struct bdev_handle){0};
+		del_gendisk(bd_vector->arr[index].middle_disk);
+		put_disk(bd_vector->arr[index].middle_disk);
+		bd_vector->arr[index].middle_disk = NULL;
+	}
+	
 
-	pr_info("removed bdev with index %d", index);
+	pr_info("Removed bdev with index %d (from list)", index + 1);
 
 	return 0;
 }
 
 /**
- * This function takes the name of the BD and makes it the aim of the redirect operation.
- * @arg - "from_bd_name path"  bd_name, that will be redirected to
+ * This function takes disk prefix, creates it + the name of the BD and makes it the aim of the redirect operation.
+ * @arg - "from_disk_postfix path"
  */
 static int bdr_set_redirect_bd(const char *arg,const struct kernel_param *kp)
 {
