@@ -206,6 +206,8 @@ static int check_and_open_bd(char *bd_path)
 	}
 
 	current_bdev_manager->bdev_handler = current_bdev_handle;
+	current_bdev_manager->bd_name = bd_path;
+	pr_info("current name: %s\n", bd_path);
 	vector_add_bd(current_bdev_manager);
 	
 	if (error) {
@@ -257,13 +259,11 @@ static int create_bd(int name_index)
 	}
 
 	bd_vector->arr[bd_vector->size - 1].middle_disk = new_disk;
-	bd_vector->arr[bd_vector->size - 1].bd_name = disk_name;
+	strcpy(bd_vector->arr[bd_vector->size - 1].middle_disk->disk_name, disk_name);
 
 	status = add_disk(new_disk);
 	
 	pr_info("Status after add_disk with name %s: %d\n", disk_name, status);
-
-	kfree(disk_name);
 	
 	if (status) {
 		put_disk(new_disk);
@@ -281,17 +281,14 @@ disk_init_err:
 	return -ENOMEM;
 }
 
-static int delete_bd(int index) // To add checks
+static int delete_bd(int index)
 {
-	if (!bd_vector->arr[index].bdev_handler) {
-		bdev_release(bd_vector->arr[index].bdev_handler);
-		bd_vector->arr[index].bdev_handler = NULL;
-	}
-	if (!bd_vector->arr[index].middle_disk) {
-		del_gendisk(bd_vector->arr[index].middle_disk);
-		put_disk(bd_vector->arr[index].middle_disk);
-		bd_vector->arr[index].middle_disk = NULL;
-	}
+	bdev_release(bd_vector->arr[index].bdev_handler);
+	bd_vector->arr[index].bdev_handler = NULL;
+
+	del_gendisk(bd_vector->arr[index].middle_disk);
+	put_disk(bd_vector->arr[index].middle_disk);
+	bd_vector->arr[index].middle_disk = NULL;
 
 	pr_info("Removed bdev with index %d (from list)", index + 1);
 
@@ -306,40 +303,35 @@ static int delete_bd(int index) // To add checks
  */
 static int bdr_get_bd_names(char *buf, const struct kernel_param *kp)
 {
-	char *names_list = NULL;
 	struct blkdev_manager current_manager;
 	int total_length = 0;
 	int offset = 0;
-	int i = 0;
 	int i_increased;
+	int length = 0;
 
-	for (i = 0; i < bd_vector->size; i++)
-	{	
+	if (bd_vector->size == 0) {
+		pr_warn("Vector is empty\n");
+		return 0;
+	}
+
+	for (int i = 0; i < bd_vector->size; i++) {
 		current_manager = bd_vector->arr[i];
-		i_increased = i + 1;
-		total_length += sprintf("%d. %s -> %s\n", i_increased, current_manager.middle_disk->disk_name, current_manager.bdev_handler->bdev->bd_disk->disk_name);
+		if (current_manager.bdev_handler != NULL) {
+			i_increased = i + 1;
+			length = sprintf(buf + offset, "%d. %s -> %s\n", i_increased, current_manager.middle_disk->disk_name, current_manager.bdev_handler->bdev->bd_disk->disk_name);
+
+			if (length < 0) {
+				pr_err("Error in formatting string\n");
+				return -EFAULT;
+			}
+
+			offset += length;
+			total_length += length;
+		}
 	}
 
-	names_list = (char *)kzalloc(total_length + 1, GFP_KERNEL);
-	
-	if (!names_list) 
-	{
-		pr_err("Memory allocation failed\n");
-		return -ENOMEM;
-	}
-
-	for (i = 0; i < bd_vector->size; i++) 
-	{
-		current_manager = bd_vector->arr[i];
-		i_increased = i + 1;
-		offset += sprintf(names_list + offset, "%d. %s -> %s\n", i_increased, current_manager.middle_disk->disk_name, current_manager.bdev_handler->bdev->bd_disk->disk_name);
-	}
-
-	strcpy(buf, names_list);
-	
-	kfree(names_list);
-	
 	return total_length;
+
 }
 
 /**
