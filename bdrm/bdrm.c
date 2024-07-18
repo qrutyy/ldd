@@ -110,6 +110,12 @@ static struct bdev_handle *open_bd_on_rw(char *bd_path)
 	return bdev_open_by_path(bd_path, BLK_OPEN_WRITE | BLK_OPEN_READ, NULL, NULL);
 }
 
+static void bdrm_bio_end_io(struct bio *bio)
+{
+	bio_endio(bio->bi_private);
+	bio_put(bio);
+}
+
 /**
  * bdr_submit_bio() - takes the provided bio, allocates a clone (child)
  * for a redirect_bd. Although, it changes the way both bio's will end and submits them.
@@ -137,10 +143,10 @@ static void bdr_submit_bio(struct bio *bio)
 		return;
 	}
 
-	bio_chain(clone, bio);
+	clone->bi_private = bio;
+	clone->bi_end_io = bdrm_bio_end_io;
 	submit_bio(clone);
 	pr_info("Submitted bio\n");
-	bio_endio(bio);
 }
 
 static const struct block_device_operations bdr_bio_ops = {
