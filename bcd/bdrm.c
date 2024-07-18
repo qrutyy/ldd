@@ -416,7 +416,6 @@ static void __exit bdr_exit(void)
 	if (!bd_vector->arr) {
 		for (i = 0; i < bd_vector->size; i ++) {
 			delete_bd(i + 1);
-			kfree(&bd_vector->arr[i]);
 		}
 		kfree(bd_vector);
 	}
