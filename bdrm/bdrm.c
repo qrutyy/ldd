@@ -53,7 +53,7 @@ mem_err:
 
 static int vector_add_bd(struct blkdev_manager *current_bdev_manager)
 {
-	char *new_array;
+	struct blkdev_manager *new_array;
 
 	if (bd_vector->size < bd_vector->capacity) {
 		pr_info("Vector wasn't resized\n");
@@ -177,7 +177,7 @@ static struct gendisk *init_disk_bd(char *bd_name)
 	new_disk->fops = &bdr_bio_ops;
 
 	if (bd_name) {
-		strscpy(new_disk->disk_name, bd_name);
+		strcpy(new_disk->disk_name, bd_name);
 	} else {
 		/* all in all - it can't happen, due to prev. checks in create_bd */
 		WARN_ON("bd_name is NULL, nothing to copy\n");
@@ -267,7 +267,7 @@ static int create_bd(int name_index)
 	}
 
 	bd_vector->arr[bd_vector->size - 1].middle_disk = new_disk;
-	strscpy(bd_vector->arr[bd_vector->size - 1].middle_disk->disk_name, disk_name);
+	strcpy(bd_vector->arr[bd_vector->size - 1].middle_disk->disk_name, disk_name);
 
 	status = add_disk(new_disk);
 
