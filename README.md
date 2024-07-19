@@ -1,12 +1,10 @@
 # LDD
 
-*Linux Device Drivers workshop* - a collection of modules and char drivers implementations, made for kernel study. 
+*Linux Device Drivers workshop* - a collection of modules (char and block drivers) implementations, made for kernel practice. 
 
 ## Usage
 
-For all the subprojects - move the Makefile into current folder. 
-
-TODO: move docs in a specified file
+If some folder doesn't have *Makefile* - move the main one
 
 ### hwprocess
 
@@ -18,7 +16,7 @@ dmesg
 *Now you see the DM output.*
 
 ### xorrand 
-Used these steps to reproduce provided plots.
+Use these steps to reproduce provided plots.
 ```bash
 gcc xorrand.c -o xorrand -O2
 ./xorrand n >> testrand.txt
@@ -30,18 +28,31 @@ python3 plots.py // u can specify the filename inside the script
 
 ```bash
 make 
-sudo insmod xorrcd.ko
-sudo dmesg // check the registered major and minor of module that appeared in dev/
+insmod xorrcd.ko
+dmesg // check the registered major and minor of module that appeared in dev/
+
 cd ~dev/ && sudo mknod -m a=r xorrcd c *major* *minor*
-sudo su
+
 cd ~root/ && dd if=/dev/xorrcd of=./rnd bs=1M count=1
 ```
-*Here you are, **bs** ammount of bites, **count** times are written to root/rnd*
-## Author: [@qrutyy](https://github.com/qrutyy)
+***bs** ammount of bites, **count** times are written to root/rnd*
+
+### bdrm
+
+```bash
+make
+insmod bdrm.ko
+echo "index path" > /sys/module/bdrm/parameters/set_redirect_bd
+```
+***index** - postfix for a 'device in the middle' (prefix is bdr)*, **path** - to which block device to redirect
+
+**f.e:**
+```bash
+echo "1 /dev/vdb" > /sys/module/bdrm/parameters/set_redirect_bd
+cat /sys/module/bdrm/parameters/get_bd_names // to get the links
+dd of=/dev/urandom if=/dev/test1 iflag=direct bs=2K count=10;
+```
 
 ## License
 
-Distributed under the [MIT License](https://choosealicense.com/licenses/mit/). 
-
- 
-
+Distributed under the [GPL-2.0 License](https://github.com/qrutyy/ldd/blob/main/LICENSE). 
