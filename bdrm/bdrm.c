@@ -11,7 +11,7 @@ MODULE_LICENSE("Dual MIT/GPL");
 #define MAX_BD_NAME_LENGTH 15
 #define MAIN_BLKDEV_NAME "bdr"
 
-static int current_redirect_pair_index = 0;
+static int current_redirect_pair_index;
 static int major;
 struct bio_set *pool;
 
@@ -21,15 +21,15 @@ typedef struct vector {
 	struct blkdev_manager *arr;
 } vector;
 
-typedef struct blkdev_manager { 
+typedef struct blkdev_manager {
 	char *bd_name;
-	struct gendisk *middle_disk; 
+	struct gendisk *middle_disk;
 	struct bdev_handle *bdev_handler;
 } blkdev_manager;
 
 static vector *bd_vector;
 
-static int vector_init(void) 
+static int vector_init(void)
 {
 	bd_vector = kzalloc(sizeof(vector), GFP_KERNEL);
 
@@ -38,8 +38,8 @@ static int vector_init(void)
 
 	bd_vector->capacity = INIT_VECTOR_CAP;
 	bd_vector->size = 0;
-	bd_vector->arr = kzalloc(sizeof(struct blkdev_manager *) * bd_vector->capacity, GFP_KERNEL);
-	
+	bd_vector->arr = kcalloc(bd_vector->capacity, sizeof(struct blkdev_manager *), GFP_KERNEL);
+
 	if (!bd_vector->arr)
 		goto mem_err;
 
@@ -51,20 +51,23 @@ mem_err:
 	return -ENOMEM;
 }
 
-static int vector_add_bd(struct blkdev_manager *current_bdev_manager) 
+static int vector_add_bd(struct blkdev_manager *current_bdev_manager)
 {
+	char *new_array;
+
 	if (bd_vector->size < bd_vector->capacity) {
 		pr_info("Vector wasn't resized\n");
 	} else {
 		pr_info("Vector was resized\n");
 
 		bd_vector->capacity *= 2;
-		bd_vector->arr = krealloc(bd_vector->arr, bd_vector->capacity, GFP_KERNEL);
-		
-		if (!bd_vector->arr) {
+		new_array = krealloc(bd_vector->arr, bd_vector->capacity, GFP_KERNEL);
+
+		if (!new_array) {
 			pr_info("Vector's array allocation failed\n");
 			return -ENOMEM;
 		}
+		bd_vector->arr = new_array;
 	}
 
 	bd_vector->arr[bd_vector->size] = *current_bdev_manager;
@@ -77,14 +80,14 @@ static int vector_check_bd_manager_by_name(char *bd_name)
 {
 	int i;
 
-	for (i = 0; i < bd_vector->size; i ++) {
+	for (i = 0; i < bd_vector->size; i++) {
 		if (bd_vector->arr[i].middle_disk->disk_name == bd_name && bd_vector->arr[i].bdev_handler != NULL)
 			return 0;
 	}
 	return -1;
 }
 
-static int convert_to_int(const char *arg) 
+static int convert_to_int(const char *arg)
 {
 	long number;
 	int res = kstrtol(arg, 10, &number);
@@ -172,10 +175,9 @@ static struct gendisk *init_disk_bd(char *bd_name)
 	new_disk->first_minor = 1;
 	new_disk->minors = bd_vector->size;
 	new_disk->fops = &bdr_bio_ops;
-	
+
 	if (bd_name) {
-		strcpy(new_disk->disk_name, bd_name);
-		
+		strscpy(new_disk->disk_name, bd_name);
 	} else {
 		/* all in all - it can't happen, due to prev. checks in create_bd */
 		WARN_ON("bd_name is NULL, nothing to copy\n");
@@ -203,10 +205,10 @@ static int check_and_open_bd(char *bd_path)
 	int error;
 	struct blkdev_manager *current_bdev_manager = kmalloc(sizeof(struct blkdev_manager), GFP_KERNEL);
 	struct bdev_handle *current_bdev_handle = NULL;
-	
+
 	current_bdev_handle = open_bd_on_rw(bd_path);
 
-	if (IS_ERR(current_bdev_handle)) { 
+	if (IS_ERR(current_bdev_handle)) {
 		pr_err("Couldnt open bd by path: %s\n", bd_path);
 		goto free_bdev;
 	}
@@ -215,7 +217,7 @@ static int check_and_open_bd(char *bd_path)
 	current_bdev_manager->bd_name = bd_path;
 	pr_info("current name: %s\n", bd_path);
 	vector_add_bd(current_bdev_manager);
-	
+
 	if (error) {
 		pr_err("Vector add failed: no disk with such name\n");
 		goto free_bdev;
@@ -230,9 +232,9 @@ free_bdev:
 	return PTR_ERR(current_bdev_handle);
 }
 
-static char* create_disk_name_by_index(int index)
+static char *create_disk_name_by_index(int index)
 {
-	char* disk_name = kmalloc(strlen(MAIN_BLKDEV_NAME) + snprintf(NULL, 0, "%d", index) + 1, GFP_KERNEL); 
+	char *disk_name = kmalloc(strlen(MAIN_BLKDEV_NAME) + snprintf(NULL, 0, "%d", index) + 1, GFP_KERNEL);
 
 	if (disk_name != NULL)
 		sprintf(disk_name, "%s%d", MAIN_BLKDEV_NAME, index);
@@ -243,7 +245,7 @@ static char* create_disk_name_by_index(int index)
 /**
  * Sets the name for a new BD, that will be used as 'device in the middle'.
  * Adds disk to the last bd_manager, that was modified by adding bdev_handler through check_and_open_bd()
- * 
+ *
  * @name_index - an index for disk name (make sense only in name displaying, DOESN'T SYNC WITH VECTOR INDICES)
  */
 static int create_bd(int name_index)
@@ -265,17 +267,17 @@ static int create_bd(int name_index)
 	}
 
 	bd_vector->arr[bd_vector->size - 1].middle_disk = new_disk;
-	strcpy(bd_vector->arr[bd_vector->size - 1].middle_disk->disk_name, disk_name);
+	strscpy(bd_vector->arr[bd_vector->size - 1].middle_disk->disk_name, disk_name);
 
 	status = add_disk(new_disk);
-	
+
 	pr_info("Status after add_disk with name %s: %d\n", disk_name, status);
-	
+
 	if (status) {
 		put_disk(new_disk);
 		goto disk_init_err;
 	}
-	
+
 	return 0;
 mem_err:
 	kfree(disk_name);
@@ -343,9 +345,10 @@ static int bdr_get_bd_names(char *buf, const struct kernel_param *kp)
 /**
  * bdr_delete_bd() - Deletes bdev according to index from printed list (check bdr_get_bd_names)
  */
-static int bdr_delete_bd(const char *arg, const struct kernel_param *kp) 
+static int bdr_delete_bd(const char *arg, const struct kernel_param *kp)
 {
 	int index = convert_to_int(arg) - 1;
+
 	delete_bd(index);
 
 	return 0;
@@ -355,7 +358,7 @@ static int bdr_delete_bd(const char *arg, const struct kernel_param *kp)
  * This function takes disk prefix, creates it + the name of the BD and makes it the aim of the redirect operation.
  * @arg - "from_disk_postfix path"
  */
-static int bdr_set_redirect_bd(const char *arg,const struct kernel_param *kp)
+static int bdr_set_redirect_bd(const char *arg, const struct kernel_param *kp)
 {
 	int status;
 	int index;
@@ -368,7 +371,6 @@ static int bdr_set_redirect_bd(const char *arg,const struct kernel_param *kp)
 
 	current_redirect_pair_index = bd_vector->size;
 
-
 	status = check_and_open_bd(path);
 
 	if (status)
@@ -376,16 +378,16 @@ static int bdr_set_redirect_bd(const char *arg,const struct kernel_param *kp)
 
 	status = create_bd(index);
 
-	if (status) 
+	if (status)
 		return PTR_ERR(&status);
-	
+
 	return 0;
 }
 
 static int __init bdr_init(void)
 {
 	int status;
-	
+
 	pr_info("BD checker module init\n");
 	vector_init();
 	major = register_blkdev(0, MAIN_BLKDEV_NAME);
@@ -397,9 +399,8 @@ static int __init bdr_init(void)
 
 	pool = kzalloc(sizeof(struct bio_set), GFP_KERNEL);
 
-	if (!pool) {
+	if (!pool)
 		goto mem_err;
-	}
 
 	status = bioset_init(pool, BIO_POOL_SIZE, 0, 0);
 
@@ -420,9 +421,8 @@ static void __exit bdr_exit(void)
 	int i;
 
 	if (!bd_vector->arr) {
-		for (i = 0; i < bd_vector->size; i ++) {
+		for (i = 0; i < bd_vector->size; i++)
 			delete_bd(i + 1);
-		}
 		kfree(bd_vector);
 	}
 	bioset_exit(pool);
