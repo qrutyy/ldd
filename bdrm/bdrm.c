@@ -2,6 +2,9 @@
 
 #include <linux/blkdev.h>
 #include <linux/moduleparam.h>
+#include <linux/btree.h>
+#include <linux/bio.h>
+#include <linux/types.h>
 
 MODULE_DESCRIPTION("Block Device Redirect Module");
 MODULE_AUTHOR("qrutyy");
@@ -18,6 +21,7 @@ struct bio_set *pool;
 typedef struct vector {
 	int size;
 	int capacity;
+	int block_vector;
 	struct blkdev_manager *arr;
 } vector;
 
@@ -25,6 +29,7 @@ typedef struct blkdev_manager {
 	char *bd_name;
 	struct gendisk *middle_disk;
 	struct bdev_handle *bdev_handler;
+	struct btree_head *map_tree;
 } blkdev_manager;
 
 static vector *bd_vector;
@@ -38,6 +43,7 @@ static int vector_init(void)
 
 	bd_vector->capacity = INIT_VECTOR_CAP;
 	bd_vector->size = 0;
+	bd_vector->block_vector = 1;
 	bd_vector->arr = kcalloc(bd_vector->capacity, sizeof(struct blkdev_manager *), GFP_KERNEL);
 
 	if (!bd_vector->arr)
@@ -113,6 +119,84 @@ static struct bdev_handle *open_bd_on_rw(char *bd_path)
 	return bdev_open_by_path(bd_path, BLK_OPEN_WRITE | BLK_OPEN_READ, NULL, NULL);
 }
 
+static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone_bio, struct btree_head *bptree_head) 
+{
+	struct bvec_iter main_iter;
+	struct bio_vec main_vec, clone_vec;
+	sector_t original_sector;
+	sector_t redirected_sector;
+
+	bio_for_each_segment(main_vec, main_bio, main_iter) {
+		pr_info("to write: %d\n", clone_bio->bi_iter.bi_size);
+		// Getting clone segment
+		clone_vec = bio_iter_iovec(clone_bio, main_iter);
+
+		if (clone_vec.bv_page != main_vec.bv_page) {
+			memcpy(page_address(clone_vec.bv_page) + clone_vec.bv_offset,
+				page_address(main_vec.bv_page) + main_vec.bv_offset,
+				main_vec.bv_len);
+		}
+
+		original_sector = main_iter.bi_sector;
+		redirected_sector = clone_bio->bi_iter.bi_sector;
+		pr_info("dada\n");
+		if (btree_lookup(bptree_head, &btree_geo32, original_sector))
+			btree_remove(bptree_head, &btree_geo32, original_sector);
+		pr_info("netnet\n");
+		btree_insert(bptree_head, &btree_geo32, original_sector, redirected_sector, GFP_KERNEL);
+
+		// Next one
+		bio_advance_iter(main_bio, &main_iter, main_vec.bv_len);
+	}
+
+	return 0;
+}
+
+static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clone_bio, struct btree_head *bptree_head)
+{
+	struct bvec_iter main_iter;
+	struct bio_vec main_vec, clone_vec;
+	sector_t original_sector;
+	sector_t redirected_sector;
+	int count = 0;
+	// unsigned long redirect_sector_node;
+
+	// Get the original sector being read
+	bio_for_each_segment(main_vec, main_bio, main_iter) {
+		pr_info("to read: %d\n", clone_bio->bi_iter.bi_size);
+
+		original_sector = main_iter.bi_sector;
+
+		pr_info("current head: %u\n", bptree_head);
+		
+		redirected_sector = btree_lookup(bptree_head, &btree_geo32, original_sector);
+		pr_info("sector after lookup: %u\n", redirected_sector);
+		if (redirected_sector == 0)
+			redirected_sector = btree_get_prev(bptree_head, &btree_geo32, original_sector);
+		pr_info("sector after get_prev: %u\n", redirected_sector);
+		// get 'next' node by iterating back (due to implementation, check lib/btree.c)
+		// redirected_sector = bval(&btree_geo32, redirect_sector_node, -1); 
+		
+		if (!redirected_sector) {
+			pr_err("No redirection of segment exists\n");
+			return -EFAULT;
+		}
+		pr_info("addr: %d\n", redirected_sector);
+
+		clone_bio->bi_iter.bi_sector = redirected_sector;
+		clone_vec = bio_iter_iovec(clone_bio, main_iter);
+
+		// Copy data from clone_vec to main_vec
+		if (clone_vec.bv_page != main_vec.bv_page) {
+			memcpy(page_address(main_vec.bv_page) + main_vec.bv_offset,
+				page_address(clone_vec.bv_page) + clone_vec.bv_offset,
+				main_vec.bv_len);
+		}
+		bio_advance_iter(main_bio, &main_iter, main_vec.bv_len);
+	}
+	return 0;
+}
+
 static void bdrm_bio_end_io(struct bio *bio)
 {
 	bio_endio(bio->bi_private);
@@ -126,9 +210,10 @@ static void bdrm_bio_end_io(struct bio *bio)
  */
 static void bdr_submit_bio(struct bio *bio)
 {
+	int status; 
 	struct bio *clone;
 	struct blkdev_manager *current_redirect_manager;
-
+	struct btree_head *current_bptree_head = bd_vector->arr[current_redirect_pair_index].map_tree;
 	pr_info("Entered submit bio\n");
 
 	if (check_bio_link(bio)) {
@@ -136,19 +221,40 @@ static void bdr_submit_bio(struct bio *bio)
 		return;
 	}
 
-	pr_debug("Redirect index in vector = %d\n", current_redirect_pair_index);
+	pr_info("Redirect index in vector = %d\n", current_redirect_pair_index);
 
 	current_redirect_manager = &bd_vector->arr[current_redirect_pair_index];
 	clone = bio_alloc_clone(current_redirect_manager->bdev_handler->bdev, bio, GFP_KERNEL, pool);
+
 	if (!clone) {
 		pr_err("Bio allocation failed\n");
 		bio_io_error(bio);
 		return;
 	}
+	pr_info("current bptree head: %u\n", current_bptree_head);
+
+
+	if (bio_op(bio) == REQ_OP_READ) {
+		pr_info("read\n");
+		status = setup_read_from_clone_segments(bio, clone, current_bptree_head); // на риде просто берем что надо из дерева + нам не нужен клон в этом случае
+	} else if (bio_op(bio) == REQ_OP_WRITE) {
+		pr_info("write\n");
+		status = setup_write_in_clone_segments(bio, clone, current_bptree_head); // how to sort them?
+	} else {
+		// if (bd_vector->block_vector == 1) {
+		// 	pr_warn("Vector is blocked due to system submits\n"); 
+		pr_warn("Unknown Operation in bio\n");
+	}
+	pr_info("ended up operation\n");
+
+	if (status) {
+		pr_err("Segment setup went wrong\n");
+	}
 
 	clone->bi_private = bio;
 	clone->bi_end_io = bdrm_bio_end_io;
 	submit_bio(clone);
+
 	pr_info("Submitted bio\n");
 }
 
@@ -215,7 +321,7 @@ static int check_and_open_bd(char *bd_path)
 
 	current_bdev_manager->bdev_handler = current_bdev_handle;
 	current_bdev_manager->bd_name = bd_path;
-	pr_info("current name: %s\n", bd_path);
+	pr_info("current aim path: %s\n", bd_path);
 	vector_add_bd(current_bdev_manager);
 
 	if (error) {
@@ -363,6 +469,7 @@ static int bdr_set_redirect_bd(const char *arg, const struct kernel_param *kp)
 	int status;
 	int index;
 	char path[MAX_BD_NAME_LENGTH];
+	struct btree_head *root = kmalloc(sizeof(struct btree_head), GFP_KERNEL);
 
 	if (sscanf(arg, "%d %s", &index, path) != 2) {
 		pr_err("Wrong input, 2 values are required\n");
@@ -371,10 +478,20 @@ static int bdr_set_redirect_bd(const char *arg, const struct kernel_param *kp)
 
 	current_redirect_pair_index = bd_vector->size;
 
+	if (status) {
+		pr_info("%d\n", status);
+		return PTR_ERR(&status);
+	}
+
 	status = check_and_open_bd(path);
 
 	if (status)
 		return PTR_ERR(&status);
+
+	status = btree_init(root);
+	pr_info("head after init: %u\n", root);
+
+	bd_vector->arr[current_redirect_pair_index].map_tree = root;
 
 	status = create_bd(index);
 
