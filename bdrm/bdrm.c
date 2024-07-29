@@ -4,24 +4,27 @@
 #include <linux/moduleparam.h>
 #include <linux/btree.h>
 #include <linux/bio.h>
-#include <linux/types.h>
 
 MODULE_DESCRIPTION("Block Device Redirect Module");
-MODULE_AUTHOR("qrutyy");
+MODULE_AUTHOR("Mike Gavrilenko - @qrutyy");
 MODULE_LICENSE("Dual MIT/GPL");
 
 #define INIT_VECTOR_CAP 4
 #define MAX_BD_NAME_LENGTH 15
 #define MAIN_BLKDEV_NAME "bdr"
+#define POOL_SIZE 50
+
+typedef unsigned long bdrm_sector; // redefine sector as 32b ulong, bc provided kernel btree stores ulong keys. 
 
 static int current_redirect_pair_index;
+static int read_count;
 static int major;
+static bdrm_sector next_free_sector = 0; // global variable to track the next free sector
 struct bio_set *pool;
 
 typedef struct vector {
 	int size;
 	int capacity;
-	int block_vector;
 	struct blkdev_manager *arr;
 } vector;
 
@@ -43,7 +46,6 @@ static int vector_init(void)
 
 	bd_vector->capacity = INIT_VECTOR_CAP;
 	bd_vector->size = 0;
-	bd_vector->block_vector = 1;
 	bd_vector->arr = kcalloc(bd_vector->capacity, sizeof(struct blkdev_manager *), GFP_KERNEL);
 
 	if (!bd_vector->arr)
@@ -119,82 +121,95 @@ static struct bdev_handle *open_bd_on_rw(char *bd_path)
 	return bdev_open_by_path(bd_path, BLK_OPEN_WRITE | BLK_OPEN_READ, NULL, NULL);
 }
 
-static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone_bio, struct btree_head *bptree_head) 
+static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone_bio, struct btree_head *bptree_head)
 {
-	struct bvec_iter main_iter;
-	struct bio_vec main_vec, clone_vec;
-	sector_t original_sector;
-	sector_t redirected_sector;
+	int status = 0;
+	bdrm_sector original_sector;
+	bdrm_sector redirected_sector;
 
-	bio_for_each_segment(main_vec, main_bio, main_iter) {
-		pr_info("to write: %d\n", clone_bio->bi_iter.bi_size);
-		// Getting clone segment
-		clone_vec = bio_iter_iovec(clone_bio, main_iter);
+	pr_info("to write: %d\n", clone_bio->bi_iter.bi_size);
+	// Getting clone segment
+	// clone_vec = bio_iter_iovec(clone_bio, main_iter);
 
-		if (clone_vec.bv_page != main_vec.bv_page) {
-			memcpy(page_address(clone_vec.bv_page) + clone_vec.bv_offset,
-				page_address(main_vec.bv_page) + main_vec.bv_offset,
-				main_vec.bv_len);
-		}
+	// if (clone_vec.bv_page != main_vec.bv_page) {
+	// 	memcpy(page_address(clone_vec.bv_page) + clone_vec.bv_offset,
+		// 		page_address(main_vec.bv_page) + main_vec.bv_offset,
+		// 		main_vec.bv_len);
+		// }
 
-		original_sector = main_iter.bi_sector;
-		redirected_sector = clone_bio->bi_iter.bi_sector;
-		pr_info("dada\n");
-		if (btree_lookup(bptree_head, &btree_geo32, original_sector))
-			btree_remove(bptree_head, &btree_geo32, original_sector);
-		pr_info("netnet\n");
-		btree_insert(bptree_head, &btree_geo32, original_sector, redirected_sector, GFP_KERNEL);
+	original_sector = main_bio->bi_iter.bi_sector + SECTOR_SIZE;
+	redirected_sector = next_free_sector;
 
-		// Next one
-		bio_advance_iter(main_bio, &main_iter, main_vec.bv_len);
+	next_free_sector += (clone_bio->bi_iter.bi_size + SECTOR_SIZE - 1) / SECTOR_SIZE; // ensure we round up to the nearest sector
+	pr_info("WRITE: head : %lu, key: %p, val: %p\n", (unsigned long)bptree_head, (void*)&original_sector, (void*)&redirected_sector);
+
+	pr_info("dada\n");
+	
+	if (btree_lookup(bptree_head, &btree_geo32, &original_sector)) {
+		btree_update(bptree_head, &btree_geo32, &original_sector, &redirected_sector);
+	} else {
+		status = btree_insert(bptree_head, &btree_geo32, &original_sector, &redirected_sector, GFP_KERNEL);
+		
+		if (status)
+			return PTR_ERR(&status);
 	}
-
+	pr_info("netnet\n");
 	return 0;
 }
 
-static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clone_bio, struct btree_head *bptree_head)
+static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clone_bio, struct btree_head *bptree_head, int read_count)
 {
-	struct bvec_iter main_iter;
-	struct bio_vec main_vec, clone_vec;
-	sector_t original_sector;
-	sector_t redirected_sector;
-	int count = 0;
-	// unsigned long redirect_sector_node;
+	bdrm_sector original_sector;
+	bdrm_sector prev_orig_sector;
+	bdrm_sector redirected_sector;
+	int status;
 
-	// Get the original sector being read
-	bio_for_each_segment(main_vec, main_bio, main_iter) {
-		pr_info("to read: %d\n", clone_bio->bi_iter.bi_size);
+	pr_info("to read: %d\n", clone_bio->bi_iter.bi_size);
 
-		original_sector = main_iter.bi_sector;
+	original_sector = main_bio->bi_iter.bi_sector + SECTOR_SIZE; // in this case - its the segment that stores in the middle 
+	pr_info("orig sector: %lu\n", original_sector);
 
-		pr_info("current head: %u\n", bptree_head);
+	if (!read_count) {
+		redirected_sector = (unsigned long)btree_lookup(bptree_head, &btree_geo32, &original_sector);
+	} else {
+		redirected_sector = (unsigned long)btree_get_prev(bptree_head, &btree_geo32, &prev_orig_sector);
+		read_count++;
+	}
+
+	prev_orig_sector = original_sector;
+
+	pr_info("redirect sector after lookup: %lu\n", redirected_sector);
+
+	if (redirected_sector == 0) {
+		pr_warn("Sector: %lu isn't mapped\n", original_sector);
+		redirected_sector = next_free_sector;
+
+		pr_warn("Next free sector before mapping: %lu\n", next_free_sector);
+
+		// Update next_free_sector to the next available sector
+		next_free_sector += (clone_bio->bi_iter.bi_size + SECTOR_SIZE - 1) / SECTOR_SIZE; // ensure we round up to the nearest sector
 		
-		redirected_sector = btree_lookup(bptree_head, &btree_geo32, original_sector);
-		pr_info("sector after lookup: %u\n", redirected_sector);
-		if (redirected_sector == 0)
-			redirected_sector = btree_get_prev(bptree_head, &btree_geo32, original_sector);
-		pr_info("sector after get_prev: %u\n", redirected_sector);
-		// get 'next' node by iterating back (due to implementation, check lib/btree.c)
-		// redirected_sector = bval(&btree_geo32, redirect_sector_node, -1); 
-		
-		if (!redirected_sector) {
-			pr_err("No redirection of segment exists\n");
+		pr_info("READ: head: %lu, key: %p, val: %p\n", (unsigned long)bptree_head, (void*)&original_sector, (void*)&redirected_sector);
+		// !!!!!!! we dont move redirected sector, due to more compact placement in the memory 
+		// TODO!!!!!!!!!!!!!!!!!!!!
+		status = btree_insert(bptree_head, &btree_geo32, &original_sector, &redirected_sector, GFP_KERNEL);
+
+		if (status < 0) {
+			pr_err("Failed to insert mapping for sector %lu\n", original_sector);
 			return -EFAULT;
 		}
-		pr_info("addr: %d\n", redirected_sector);
-
-		clone_bio->bi_iter.bi_sector = redirected_sector;
-		clone_vec = bio_iter_iovec(clone_bio, main_iter);
-
-		// Copy data from clone_vec to main_vec
-		if (clone_vec.bv_page != main_vec.bv_page) {
-			memcpy(page_address(main_vec.bv_page) + main_vec.bv_offset,
-				page_address(clone_vec.bv_page) + clone_vec.bv_offset,
-				main_vec.bv_len);
-		}
-		bio_advance_iter(main_bio, &main_iter, main_vec.bv_len);
 	}
-	return 0;
+
+	pr_info("addr: %lu\n", redirected_sector);
+
+	read_count++;
+	clone_bio->bi_iter.bi_sector = redirected_sector;
+
+	return read_count; // WTF TODO if bio has only one sector - we dont need this, but then there is no need of line 174, bc we read only 1 sector
+
+// sector_not_found:
+// 	pr_err("Sector not found\n");
+// 	return -EINVAL;
 }
 
 static void bdrm_bio_end_io(struct bio *bio)
@@ -210,7 +225,8 @@ static void bdrm_bio_end_io(struct bio *bio)
  */
 static void bdr_submit_bio(struct bio *bio)
 {
-	int status; 
+	int status;
+	int read_count = 0;
 	struct bio *clone;
 	struct blkdev_manager *current_redirect_manager;
 	struct btree_head *current_bptree_head = bd_vector->arr[current_redirect_pair_index].map_tree;
@@ -231,28 +247,27 @@ static void bdr_submit_bio(struct bio *bio)
 		bio_io_error(bio);
 		return;
 	}
-	pr_info("current bptree head: %u\n", current_bptree_head);
+	pr_info("current bptree head: %lu\n", (unsigned long)&current_bptree_head);
 
+	clone->bi_private = bio;
+	clone->bi_end_io = bdrm_bio_end_io;
 
 	if (bio_op(bio) == REQ_OP_READ) {
 		pr_info("read\n");
-		status = setup_read_from_clone_segments(bio, clone, current_bptree_head); // на риде просто берем что надо из дерева + нам не нужен клон в этом случае
+		status = setup_read_from_clone_segments(bio, clone, current_bptree_head, read_count); // на риде просто берем что надо из дерева + нам не нужен клон в этом случае
 	} else if (bio_op(bio) == REQ_OP_WRITE) {
 		pr_info("write\n");
 		status = setup_write_in_clone_segments(bio, clone, current_bptree_head); // how to sort them?
 	} else {
-		// if (bd_vector->block_vector == 1) {
-		// 	pr_warn("Vector is blocked due to system submits\n"); 
-		pr_warn("Unknown Operation in bio\n");
+		pr_warn("Unknown Operation in abio\n");
 	}
 	pr_info("ended up operation\n");
 
-	if (status) {
+	if (IS_ERR(status)) {
+		bdrm_bio_end_io(bio);
 		pr_err("Segment setup went wrong\n");
 	}
 
-	clone->bi_private = bio;
-	clone->bi_end_io = bdrm_bio_end_io;
 	submit_bio(clone);
 
 	pr_info("Submitted bio\n");
@@ -404,6 +419,10 @@ static int delete_bd(int index)
 	put_disk(bd_vector->arr[index].middle_disk);
 	bd_vector->arr[index].middle_disk = NULL;
 
+	btree_destroy(bd_vector->arr[index].map_tree);
+	kfree(bd_vector->arr[index].map_tree);
+	bd_vector->arr[index].map_tree = NULL;
+
 	pr_info("Removed bdev with index %d (from list)", index + 1);
 
 	return 0;
@@ -471,6 +490,8 @@ static int bdr_set_redirect_bd(const char *arg, const struct kernel_param *kp)
 	char path[MAX_BD_NAME_LENGTH];
 	struct btree_head *root = kmalloc(sizeof(struct btree_head), GFP_KERNEL);
 
+	// struct mempool_s *mempool = mempool_create_kmalloc_pool(POOL_SIZE, sizeof(sector));
+
 	if (sscanf(arg, "%d %s", &index, path) != 2) {
 		pr_err("Wrong input, 2 values are required\n");
 		return -EINVAL;
@@ -489,7 +510,9 @@ static int bdr_set_redirect_bd(const char *arg, const struct kernel_param *kp)
 		return PTR_ERR(&status);
 
 	status = btree_init(root);
-	pr_info("head after init: %u\n", root);
+	
+	if (status)
+		return PTR_ERR(&status);
 
 	bd_vector->arr[current_redirect_pair_index].map_tree = root;
 
@@ -505,7 +528,7 @@ static int __init bdr_init(void)
 {
 	int status;
 
-	pr_info("BD checker module init\n");
+	pr_info("BDR module init\n");
 	vector_init();
 	major = register_blkdev(0, MAIN_BLKDEV_NAME);
 
@@ -546,7 +569,7 @@ static void __exit bdr_exit(void)
 	kfree(pool);
 	unregister_blkdev(major, MAIN_BLKDEV_NAME);
 
-	pr_info("BD checker module exit\n");
+	pr_info("BDR module exit\n");
 }
 
 static const struct kernel_param_ops bdr_delete_ops = {
