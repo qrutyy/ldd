@@ -14,7 +14,8 @@ MODULE_LICENSE("Dual MIT/GPL");
 #define MAIN_BLKDEV_NAME "bdr"
 #define POOL_SIZE 50
 
-typedef unsigned long bdrm_sector; // redefine sector as 32b ulong, bc provided kernel btree stores ulong keys
+/* Redefine sector as 32b ulong, bc provided kernel btree stores ulong keys */
+typedef unsigned long bdrm_sector;
 
 static int bdrm_current_redirect_pair_index;
 static int bdrm_major;
@@ -139,7 +140,9 @@ static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone
 
 	*original_sector = main_bio->bi_iter.bi_sector + clone_bio->bi_iter.bi_size / SECTOR_SIZE;
 	*redirected_sector = next_free_sector; // add to doc: (even if the mapping exists - it readds it to support the sequential access)
-	next_free_sector += (clone_bio->bi_iter.bi_size + SECTOR_SIZE - 1) / SECTOR_SIZE; // isn;'t it a placebo? we support only 4kb blocks
+	
+	/* Placebo rn. We support only 4kb blocks, so we could hardcode, but in future sizes would be more diverse  */
+	next_free_sector += (clone_bio->bi_iter.bi_size + SECTOR_SIZE - 1) / SECTOR_SIZE;
 	mapped_redirect_address = btree_lookup(bptree_head, &btree_geo64, original_sector);
 
 	pr_info("WRITE: head : %lu, key: %p, val: %p\n", (unsigned long)bptree_head, original_sector, redirected_sector);
@@ -179,7 +182,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 	if (original_sector == NULL)
 		goto mem_err;
 
-	/* original_sector - middle disk sector */
+	/* original_sector - Middle disk sector */
 	*original_sector = main_bio->bi_iter.bi_sector + clone_bio->bi_iter.bi_size / SECTOR_SIZE;
 	redirected_sector = btree_lookup(bptree_head, &btree_geo64, original_sector);
 
@@ -195,8 +198,8 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 		redirected_sector = kmalloc(sizeof(unsigned long), GFP_KERNEL);
 		*redirected_sector = next_free_sector;
 
-		// update next_free_sector to the next available sector
-		next_free_sector += (clone_bio->bi_iter.bi_size + SECTOR_SIZE - 1) / SECTOR_SIZE; // ensure we round up to the nearest sector
+		/* Update next_free_sector to the next available sector */
+		next_free_sector += (clone_bio->bi_iter.bi_size + SECTOR_SIZE - 1) / SECTOR_SIZE;
 
 		pr_info("READ: head: %lu, key: %p, val: %p\n", (unsigned long)bptree_head, original_sector, redirected_sector);
 		status = btree_insert(bptree_head, &btree_geo64, original_sector, redirected_sector, GFP_KERNEL);
@@ -225,7 +228,7 @@ static void bdrm_bio_end_io(struct bio *bio)
 }
 
 /**
- * bdr_submit_bio() - takes the provided bio, allocates a clone (child)
+ * bdr_submit_bio() - Takes the provided bio, allocates a clone (child)
  * for a redirect_bd. Although, it changes the way both bio's will end (+ maps bio address with free one from aim BD in b+tree) and submits them.
  * @bio - Expected bio request
  */
