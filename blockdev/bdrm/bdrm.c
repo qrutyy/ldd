@@ -2,30 +2,38 @@
 
 #include <linux/blkdev.h>
 #include <linux/moduleparam.h>
+#include <linux/btree.h>
+#include <linux/bio.h>
 
 MODULE_DESCRIPTION("Block Device Redirect Module");
-MODULE_AUTHOR("qrutyy");
+MODULE_AUTHOR("Mike Gavrilenko - @qrutyy");
 MODULE_LICENSE("Dual MIT/GPL");
 
 #define INIT_VECTOR_CAP 4
 #define MAX_BD_NAME_LENGTH 15
 #define MAIN_BLKDEV_NAME "bdr"
+#define POOL_SIZE 50
 
-static int current_redirect_pair_index;
-static int major;
-struct bio_set *pool;
+/* Redefine sector as 32b ulong, bc provided kernel btree stores ulong keys */
+typedef unsigned long bdrm_sector;
+
+static int bdrm_current_redirect_pair_index;
+static int bdrm_major;
+static bdrm_sector next_free_sector = 8;
+struct bio_set *bdrm_pool;
 
 typedef struct vector {
 	int size;
 	int capacity;
-	struct blkdev_manager *arr;
+	struct bdrm_manager *arr;
 } vector;
 
-typedef struct blkdev_manager {
+typedef struct bdrm_manager {
 	char *bd_name;
 	struct gendisk *middle_disk;
 	struct bdev_handle *bdev_handler;
-} blkdev_manager;
+	struct btree_head *map_tree;
+} bdrm_manager;
 
 static vector *bd_vector;
 
@@ -38,7 +46,7 @@ static int vector_init(void)
 
 	bd_vector->capacity = INIT_VECTOR_CAP;
 	bd_vector->size = 0;
-	bd_vector->arr = kcalloc(bd_vector->capacity, sizeof(struct blkdev_manager *), GFP_KERNEL);
+	bd_vector->arr = kcalloc(bd_vector->capacity, sizeof(struct bdrm_manager *), GFP_KERNEL);
 
 	if (!bd_vector->arr)
 		goto mem_err;
@@ -51,9 +59,9 @@ mem_err:
 	return -ENOMEM;
 }
 
-static int vector_add_bd(struct blkdev_manager *current_bdev_manager)
+static int vector_add_bd(struct bdrm_manager *current_bdev_manager)
 {
-	struct blkdev_manager *new_array;
+	struct bdrm_manager *new_array;
 
 	if (bd_vector->size < bd_vector->capacity) {
 		pr_info("Vector wasn't resized\n");
@@ -113,6 +121,106 @@ static struct bdev_handle *open_bd_on_rw(char *bd_path)
 	return bdev_open_by_path(bd_path, BLK_OPEN_WRITE | BLK_OPEN_READ, NULL, NULL);
 }
 
+static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone_bio, struct btree_head *bptree_head)
+{
+	int status;
+	bdrm_sector *original_sector;
+	bdrm_sector *redirected_sector;
+	bdrm_sector *mapped_redirect_address;
+
+	original_sector = kmalloc(sizeof(unsigned long), GFP_KERNEL);
+
+	if (original_sector == NULL)
+		goto mem_err;
+
+	redirected_sector = kmalloc(sizeof(unsigned long), GFP_KERNEL);
+
+	if (redirected_sector == NULL)
+		goto mem_err;
+
+	*original_sector = main_bio->bi_iter.bi_sector + clone_bio->bi_iter.bi_size / SECTOR_SIZE;
+	*redirected_sector = next_free_sector;
+
+	/* Placebo rn. We support only 4kb blocks, so we could hardcode, but in future sizes would be more diverse  */
+	next_free_sector += (clone_bio->bi_iter.bi_size + SECTOR_SIZE - 1) / SECTOR_SIZE;
+	mapped_redirect_address = btree_lookup(bptree_head, &btree_geo64, original_sector);
+
+	pr_info("WRITE: head : %lu, key: %p, val: %p\n", (unsigned long)bptree_head, original_sector, redirected_sector);
+
+	if (mapped_redirect_address && mapped_redirect_address != redirected_sector)
+		btree_remove(bptree_head, &btree_geo64, original_sector);
+
+	status = btree_insert(bptree_head, &btree_geo64, original_sector, redirected_sector, GFP_KERNEL);
+
+	if (status)
+		return PTR_ERR(&status);
+
+	clone_bio->bi_iter.bi_sector = *redirected_sector;
+
+	return 0;
+
+mem_err:
+	pr_err("Memory allocation failed\n");
+	kfree(original_sector);
+	kfree(redirected_sector);
+	return -ENOMEM;
+}
+
+static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clone_bio, struct btree_head *bptree_head)
+{
+	bdrm_sector *original_sector;
+	bdrm_sector *redirected_sector;
+	int status;
+
+	if (clone_bio->bi_iter.bi_size != 4096) {
+		pr_err("Undefined block size: %d\n", clone_bio->bi_iter.bi_size);
+		return -EFBIG;
+	}
+
+	original_sector = kmalloc(sizeof(unsigned long), GFP_KERNEL);
+
+	if (original_sector == NULL)
+		goto mem_err;
+
+	/* original_sector - Middle disk sector */
+	*original_sector = main_bio->bi_iter.bi_sector + clone_bio->bi_iter.bi_size / SECTOR_SIZE;
+	redirected_sector = btree_lookup(bptree_head, &btree_geo64, original_sector);
+
+	if (redirected_sector != NULL) {
+		pr_info("READ: head: %lu, key: %p, val: %p\n", (unsigned long)bptree_head, original_sector, redirected_sector);
+		pr_info("val int: %lu\n", *redirected_sector);
+	}
+	pr_info("READ: head: %lu, key: %p\n", (unsigned long)bptree_head, original_sector);
+
+	if (redirected_sector == NULL) {
+		pr_warn("Sector: %lu isn't mapped\n", original_sector);
+
+		redirected_sector = kmalloc(sizeof(unsigned long), GFP_KERNEL);
+		*redirected_sector = next_free_sector;
+
+		/* Update next_free_sector to the next available sector */
+		next_free_sector += (clone_bio->bi_iter.bi_size + SECTOR_SIZE - 1) / SECTOR_SIZE;
+
+		pr_info("READ: head: %lu, key: %p, val: %p\n", (unsigned long)bptree_head, original_sector, redirected_sector);
+		status = btree_insert(bptree_head, &btree_geo64, original_sector, redirected_sector, GFP_KERNEL);
+
+		if (status < 0) {
+			pr_err("Failed to insert mapping for sector %p\n", (void *)original_sector);
+			return -EFAULT;
+		}
+	}
+
+	clone_bio->bi_iter.bi_sector = *redirected_sector;
+
+	return 0;
+
+mem_err:
+	pr_err("Memory allocation failed\n");
+	kfree(original_sector);
+	kfree(redirected_sector);
+	return -ENOMEM;
+}
+
 static void bdrm_bio_end_io(struct bio *bio)
 {
 	bio_endio(bio->bi_private);
@@ -120,36 +228,57 @@ static void bdrm_bio_end_io(struct bio *bio)
 }
 
 /**
- * bdr_submit_bio() - takes the provided bio, allocates a clone (child)
- * for a redirect_bd. Although, it changes the way both bio's will end and submits them.
+ * bdr_submit_bio() - Takes the provided bio, allocates a clone (child)
+ * for a redirect_bd. Although, it changes the way both bio's will end (+ maps bio address with free one from aim BD in b+tree) and submits them.
  * @bio - Expected bio request
  */
 static void bdr_submit_bio(struct bio *bio)
 {
+	int status;
 	struct bio *clone;
-	struct blkdev_manager *current_redirect_manager;
+	struct bdrm_manager *current_redirect_manager;
+	struct btree_head *current_bptree_head;
 
-	pr_info("Entered submit bio\n");
+	status = check_bio_link(bio);
 
-	if (check_bio_link(bio)) {
-		pr_err("Check bio link failed\n");
+	if (status) {
+		bdrm_bio_end_io(bio);
 		return;
 	}
 
-	pr_debug("Redirect index in vector = %d\n", current_redirect_pair_index);
+	pr_info("Redirect index in vector = %d\n", bdrm_current_redirect_pair_index);
 
-	current_redirect_manager = &bd_vector->arr[current_redirect_pair_index];
-	clone = bio_alloc_clone(current_redirect_manager->bdev_handler->bdev, bio, GFP_KERNEL, pool);
+	current_redirect_manager = &bd_vector->arr[bdrm_current_redirect_pair_index];
+	current_bptree_head = bd_vector->arr[bdrm_current_redirect_pair_index].map_tree;
+	clone = bio_alloc_clone(current_redirect_manager->bdev_handler->bdev, bio, GFP_KERNEL, bdrm_pool);
+
 	if (!clone) {
-		pr_err("Bio allocation failed\n");
+		pr_err("Bio alalocation failed\n");
 		bio_io_error(bio);
 		return;
 	}
 
 	clone->bi_private = bio;
 	clone->bi_end_io = bdrm_bio_end_io;
+
+	if (bio_op(bio) == REQ_OP_READ) {
+		pr_info("Set up READ op.\n");
+		status = setup_read_from_clone_segments(bio, clone, current_bptree_head);
+	} else if (bio_op(bio) == REQ_OP_WRITE) {
+		pr_info("Set up WRITE op.\n");
+		status = setup_write_in_clone_segments(bio, clone, current_bptree_head);
+	} else {
+		pr_warn("Unknown Operation in abio\n");
+	}
+
+	if (IS_ERR(status)) {
+		pr_err("Segment setup went wrong\n");
+		bio_io_error(bio);
+		return;
+	}
+
 	submit_bio(clone);
-	pr_info("Submitted bio\n");
+	pr_info("Submitted bio\n\n");
 }
 
 static const struct block_device_operations bdr_bio_ops = {
@@ -158,7 +287,7 @@ static const struct block_device_operations bdr_bio_ops = {
 };
 
 /**
- * init_disk_bd() - Initialises gendisk structure, for 'local' disk
+ * init_disk_bd() - Initialises gendisk structure, for 'middle' disk
  * @bd_name: name of creating BD
  *
  * DOESN'T SET UP the disks capacity, check bdr_submit_bio()
@@ -167,11 +296,11 @@ static const struct block_device_operations bdr_bio_ops = {
 static struct gendisk *init_disk_bd(char *bd_name)
 {
 	struct gendisk *new_disk = NULL;
-	struct blkdev_manager *linked_manager = NULL;
+	struct bdrm_manager *linked_manager = NULL;
 
 	new_disk = blk_alloc_disk(NUMA_NO_NODE);
 
-	new_disk->major = major;
+	new_disk->major = bdrm_major;
 	new_disk->first_minor = 1;
 	new_disk->minors = bd_vector->size;
 	new_disk->fops = &bdr_bio_ops;
@@ -198,12 +327,12 @@ free_bd_meta:
 
 /**
  * check_and_open_bd() - Checks if name is occupied, if so - opens the BD, if
- * not - return -EINVAL.
+ * not - return -EINVAL. Additionally adds the BD to the vector.
  */
 static int check_and_open_bd(char *bd_path)
 {
 	int error;
-	struct blkdev_manager *current_bdev_manager = kmalloc(sizeof(struct blkdev_manager), GFP_KERNEL);
+	struct bdrm_manager *current_bdev_manager = kmalloc(sizeof(struct bdrm_manager), GFP_KERNEL);
 	struct bdev_handle *current_bdev_handle = NULL;
 
 	current_bdev_handle = open_bd_on_rw(bd_path);
@@ -215,7 +344,6 @@ static int check_and_open_bd(char *bd_path)
 
 	current_bdev_manager->bdev_handler = current_bdev_handle;
 	current_bdev_manager->bd_name = bd_path;
-	pr_info("current name: %s\n", bd_path);
 	vector_add_bd(current_bdev_manager);
 
 	if (error) {
@@ -298,6 +426,12 @@ static int delete_bd(int index)
 	put_disk(bd_vector->arr[index].middle_disk);
 	bd_vector->arr[index].middle_disk = NULL;
 
+	btree_destroy(bd_vector->arr[index].map_tree);
+	kfree(bd_vector->arr[index].map_tree);
+	bd_vector->arr[index].map_tree = NULL;
+
+	// TODO: clear map_tree by iterating
+
 	pr_info("Removed bdev with index %d (from list)", index + 1);
 
 	return 0;
@@ -311,7 +445,7 @@ static int delete_bd(int index)
  */
 static int bdr_get_bd_names(char *buf, const struct kernel_param *kp)
 {
-	struct blkdev_manager current_manager;
+	struct bdrm_manager current_manager;
 	int total_length = 0;
 	int offset = 0;
 	int i_increased;
@@ -355,7 +489,7 @@ static int bdr_delete_bd(const char *arg, const struct kernel_param *kp)
 }
 
 /**
- * This function takes disk prefix, creates it + the name of the BD and makes it the aim of the redirect operation.
+ * Function links 'middle' BD and the aim one, for vector purposes. (creates, opens and links)
  * @arg - "from_disk_postfix path"
  */
 static int bdr_set_redirect_bd(const char *arg, const struct kernel_param *kp)
@@ -363,18 +497,31 @@ static int bdr_set_redirect_bd(const char *arg, const struct kernel_param *kp)
 	int status;
 	int index;
 	char path[MAX_BD_NAME_LENGTH];
+	struct btree_head *root = kmalloc(sizeof(struct btree_head), GFP_KERNEL);
 
 	if (sscanf(arg, "%d %s", &index, path) != 2) {
 		pr_err("Wrong input, 2 values are required\n");
 		return -EINVAL;
 	}
 
-	current_redirect_pair_index = bd_vector->size;
+	bdrm_current_redirect_pair_index = bd_vector->size;
+
+	if (status) {
+		pr_info("%d\n", status);
+		return PTR_ERR(&status);
+	}
 
 	status = check_and_open_bd(path);
 
 	if (status)
 		return PTR_ERR(&status);
+
+	status = btree_init(root);
+
+	if (status)
+		return PTR_ERR(&status);
+
+	bd_vector->arr[bdrm_current_redirect_pair_index].map_tree = root;
 
 	status = create_bd(index);
 
@@ -388,21 +535,21 @@ static int __init bdr_init(void)
 {
 	int status;
 
-	pr_info("BD checker module init\n");
+	pr_info("BDR module init\n");
 	vector_init();
-	major = register_blkdev(0, MAIN_BLKDEV_NAME);
+	bdrm_major = register_blkdev(0, MAIN_BLKDEV_NAME);
 
-	if (major < 0) {
+	if (bdrm_major < 0) {
 		pr_err("Unable to register mybdev block device\n");
 		return -EIO;
 	}
 
-	pool = kzalloc(sizeof(struct bio_set), GFP_KERNEL);
+	bdrm_pool = kzalloc(sizeof(struct bio_set), GFP_KERNEL);
 
-	if (!pool)
+	if (!bdrm_pool)
 		goto mem_err;
 
-	status = bioset_init(pool, BIO_POOL_SIZE, 0, 0);
+	status = bioset_init(bdrm_pool, BIO_POOL_SIZE, 0, 0);
 
 	if (status) {
 		pr_err("Couldn't allocate bio set");
@@ -411,7 +558,7 @@ static int __init bdr_init(void)
 
 	return 0;
 mem_err:
-	kfree(pool);
+	kfree(bdrm_pool);
 	pr_err("Memory allocation failed\n");
 	return -ENOMEM;
 }
@@ -425,11 +572,11 @@ static void __exit bdr_exit(void)
 			delete_bd(i + 1);
 		kfree(bd_vector);
 	}
-	bioset_exit(pool);
-	kfree(pool);
-	unregister_blkdev(major, MAIN_BLKDEV_NAME);
+	bioset_exit(bdrm_pool);
+	kfree(bdrm_pool);
+	unregister_blkdev(bdrm_major, MAIN_BLKDEV_NAME);
 
-	pr_info("BD checker module exit\n");
+	pr_info("BDR module exit\n");
 }
 
 static const struct kernel_param_ops bdr_delete_ops = {
@@ -448,13 +595,13 @@ static const struct kernel_param_ops bdr_redirect_ops = {
 };
 
 MODULE_PARM_DESC(delete_bd, "Delete BD");
-module_param_cb(delete_bd, &bdr_delete_ops, NULL, S_IWUSR);
+module_param_cb(delete_bd, &bdr_delete_ops, NULL, 0200);
 
 MODULE_PARM_DESC(get_bd_names, "Get list of disks and their redirect bd's");
-module_param_cb(get_bd_names, &bdr_get_bd_ops, NULL, S_IRUGO | S_IWUSR);
+module_param_cb(get_bd_names, &bdr_get_bd_ops, NULL, 0644);
 
 MODULE_PARM_DESC(set_redirect_bd, "Link local disk with redirect aim bd");
-module_param_cb(set_redirect_bd, &bdr_redirect_ops, NULL, S_IWUSR);
+module_param_cb(set_redirect_bd, &bdr_redirect_ops, NULL, 0200);
 
 module_init(bdr_init);
 module_exit(bdr_exit);
