@@ -25,15 +25,15 @@ struct bio_set *bdrm_pool;
 typedef struct vector {
 	int size;
 	int capacity;
-	struct blkdev_manager *arr;
+	struct bdrm_manager *arr;
 } vector;
 
-typedef struct blkdev_manager {
+typedef struct bdrm_manager {
 	char *bd_name;
 	struct gendisk *middle_disk;
 	struct bdev_handle *bdev_handler;
 	struct btree_head *map_tree;
-} blkdev_manager;
+} bdrm_manager;
 
 static vector *bd_vector;
 
@@ -46,7 +46,7 @@ static int vector_init(void)
 
 	bd_vector->capacity = INIT_VECTOR_CAP;
 	bd_vector->size = 0;
-	bd_vector->arr = kcalloc(bd_vector->capacity, sizeof(struct blkdev_manager *), GFP_KERNEL);
+	bd_vector->arr = kcalloc(bd_vector->capacity, sizeof(struct bdrm_manager *), GFP_KERNEL);
 
 	if (!bd_vector->arr)
 		goto mem_err;
@@ -59,9 +59,9 @@ mem_err:
 	return -ENOMEM;
 }
 
-static int vector_add_bd(struct blkdev_manager *current_bdev_manager)
+static int vector_add_bd(struct bdrm_manager *current_bdev_manager)
 {
-	struct blkdev_manager *new_array;
+	struct bdrm_manager *new_array;
 
 	if (bd_vector->size < bd_vector->capacity) {
 		pr_info("Vector wasn't resized\n");
@@ -139,8 +139,8 @@ static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone
 		goto mem_err;
 
 	*original_sector = main_bio->bi_iter.bi_sector + clone_bio->bi_iter.bi_size / SECTOR_SIZE;
-	*redirected_sector = next_free_sector; // add to doc: (even if the mapping exists - it readds it to support the sequential access)
-	
+	*redirected_sector = next_free_sector;
+
 	/* Placebo rn. We support only 4kb blocks, so we could hardcode, but in future sizes would be more diverse  */
 	next_free_sector += (clone_bio->bi_iter.bi_size + SECTOR_SIZE - 1) / SECTOR_SIZE;
 	mapped_redirect_address = btree_lookup(bptree_head, &btree_geo64, original_sector);
@@ -236,7 +236,7 @@ static void bdr_submit_bio(struct bio *bio)
 {
 	int status;
 	struct bio *clone;
-	struct blkdev_manager *current_redirect_manager;
+	struct bdrm_manager *current_redirect_manager;
 	struct btree_head *current_bptree_head;
 
 	status = check_bio_link(bio);
@@ -287,7 +287,7 @@ static const struct block_device_operations bdr_bio_ops = {
 };
 
 /**
- * init_disk_bd() - Initialises gendisk structure, for 'local' disk
+ * init_disk_bd() - Initialises gendisk structure, for 'middle' disk
  * @bd_name: name of creating BD
  *
  * DOESN'T SET UP the disks capacity, check bdr_submit_bio()
@@ -296,7 +296,7 @@ static const struct block_device_operations bdr_bio_ops = {
 static struct gendisk *init_disk_bd(char *bd_name)
 {
 	struct gendisk *new_disk = NULL;
-	struct blkdev_manager *linked_manager = NULL;
+	struct bdrm_manager *linked_manager = NULL;
 
 	new_disk = blk_alloc_disk(NUMA_NO_NODE);
 
@@ -332,7 +332,7 @@ free_bd_meta:
 static int check_and_open_bd(char *bd_path)
 {
 	int error;
-	struct blkdev_manager *current_bdev_manager = kmalloc(sizeof(struct blkdev_manager), GFP_KERNEL);
+	struct bdrm_manager *current_bdev_manager = kmalloc(sizeof(struct bdrm_manager), GFP_KERNEL);
 	struct bdev_handle *current_bdev_handle = NULL;
 
 	current_bdev_handle = open_bd_on_rw(bd_path);
@@ -426,7 +426,6 @@ static int delete_bd(int index)
 	put_disk(bd_vector->arr[index].middle_disk);
 	bd_vector->arr[index].middle_disk = NULL;
 
-	btree_
 	btree_destroy(bd_vector->arr[index].map_tree);
 	kfree(bd_vector->arr[index].map_tree);
 	bd_vector->arr[index].map_tree = NULL;
@@ -446,7 +445,7 @@ static int delete_bd(int index)
  */
 static int bdr_get_bd_names(char *buf, const struct kernel_param *kp)
 {
-	struct blkdev_manager current_manager;
+	struct bdrm_manager current_manager;
 	int total_length = 0;
 	int offset = 0;
 	int i_increased;
@@ -499,8 +498,6 @@ static int bdr_set_redirect_bd(const char *arg, const struct kernel_param *kp)
 	int index;
 	char path[MAX_BD_NAME_LENGTH];
 	struct btree_head *root = kmalloc(sizeof(struct btree_head), GFP_KERNEL);
-
-	// struct mempool_s *mempool = mempool_create_kmalloc_pool(POOL_SIZE, sizeof(sector));
 
 	if (sscanf(arg, "%d %s", &index, path) != 2) {
 		pr_err("Wrong input, 2 values are required\n");
