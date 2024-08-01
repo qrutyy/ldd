@@ -1,0 +1,17 @@
+name: Kernel 6.8 build
+
+on:
+  push:
+  workflow_dispatch:
+  pull_request:
+
+jobs: 
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: build
+        run: |
+          sudo apt install build-essential linux-headers-6.8.0-1010-azure
+          cd blockdev/bdrm/
+          make
