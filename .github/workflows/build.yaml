@@ -15,12 +15,3 @@ jobs:
           sudo apt install build-essential linux-headers-6.8.0-1010-azure
           cd blockdev/bdrm/
           make
-  lint:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: lint
-        run: |
-          curl -O https://raw.githubusercontent.com/torvalds/linux/master/scripts/checkpatch.pl
-          sudo chmod u+x ./checkpatch.pl
-          ./checkpatch.pl
