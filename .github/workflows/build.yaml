@@ -13,6 +13,7 @@ jobs:
       - name: build
         run: |
           sudo apt install build-essential linux-headers-6.8.0-1010-azure
+          cd blockdev/bdrm/
           make
   lint:
     runs-on: ubuntu-24.04
