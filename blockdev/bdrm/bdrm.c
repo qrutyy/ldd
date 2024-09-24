@@ -147,8 +147,10 @@ static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone
 
 	pr_info("WRITE: head : %lu, key: %p, val: %p\n", (unsigned long)bptree_head, original_sector, redirected_sector);
 
-	if (mapped_redirect_address && mapped_redirect_address != redirected_sector)
+	if (mapped_redirect_address && mapped_redirect_address != redirected_sector) {
 		btree_remove(bptree_head, &btree_geo64, original_sector);
+		pr_info("DEBUG: removed old mapping\n");
+	}
 
 	status = btree_insert(bptree_head, &btree_geo64, original_sector, redirected_sector, GFP_KERNEL);
 
@@ -172,10 +174,11 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 	bdrm_sector *redirected_sector;
 	int status;
 
-	if (clone_bio->bi_iter.bi_size != 4096) {
+	/*if (clone_bio->bi_iter.bi_size != 4096) {
 		pr_err("Undefined block size: %d\n", clone_bio->bi_iter.bi_size);
 		return -EFBIG;
 	}
+	*/	
 
 	original_sector = kmalloc(sizeof(unsigned long), GFP_KERNEL);
 
@@ -419,21 +422,24 @@ disk_init_err:
 
 static int delete_bd(int index)
 {
-	bdev_release(bd_vector->arr[index].bdev_handler);
-	bd_vector->arr[index].bdev_handler = NULL;
+	if (bd_vector->arr[index].bdev_handler) {
+		bdev_release(bd_vector->arr[index].bdev_handler);
+		bd_vector->arr[index].bdev_handler = NULL;
+	} else {
+		pr_info("Bdev handler of %d is empty\n", index + 1);
+	}
 
-	del_gendisk(bd_vector->arr[index].middle_disk);
-	put_disk(bd_vector->arr[index].middle_disk);
-	bd_vector->arr[index].middle_disk = NULL;
+	if (bd_vector->arr[index].middle_disk) {
+		del_gendisk(bd_vector->arr[index].middle_disk);
+		put_disk(bd_vector->arr[index].middle_disk);
+		bd_vector->arr[index].middle_disk = NULL;
+	}
+	if (bd_vector->arr[index].map_tree) {
+		btree_destroy(bd_vector->arr[index].map_tree);
+		bd_vector->arr[index].map_tree = NULL;
+	}
 
-	btree_destroy(bd_vector->arr[index].map_tree);
-	kfree(bd_vector->arr[index].map_tree);
-	bd_vector->arr[index].map_tree = NULL;
-
-	// TODO: clear map_tree by iterating
-
-	pr_info("Removed bdev with index %d (from list)", index + 1);
-
+	pr_info("Removed bdev with index %d (from list)\n", index + 1);
 	return 0;
 }
 
