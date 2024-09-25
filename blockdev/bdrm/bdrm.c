@@ -4,13 +4,14 @@
 #include <linux/moduleparam.h>
 #include <linux/btree.h>
 #include <linux/bio.h>
+#include <linux/list.h>
 
 MODULE_DESCRIPTION("Block Device Redirect Module");
 MODULE_AUTHOR("Mike Gavrilenko - @qrutyy");
 MODULE_LICENSE("Dual MIT/GPL");
 
-#define INIT_VECTOR_CAP 4
 #define MAX_BD_NAME_LENGTH 15
+#define MAX_MINORS_AM 20
 #define MAIN_BLKDEV_NAME "bdr"
 #define POOL_SIZE 50
 
@@ -21,78 +22,48 @@ static int bdrm_current_redirect_pair_index;
 static int bdrm_major;
 static bdrm_sector next_free_sector = 8;
 struct bio_set *bdrm_pool;
-
-typedef struct vector {
-	int size;
-	int capacity;
-	struct bdrm_manager *arr;
-} vector;
+struct list_head bd_list;
 
 typedef struct bdrm_manager {
 	char *bd_name;
 	struct gendisk *middle_disk;
 	struct bdev_handle *bdev_handler;
 	struct btree_head *map_tree;
+	struct list_head list;
 } bdrm_manager;
-
-static vector *bd_vector;
-
-static int vector_init(void)
-{
-	bd_vector = kzalloc(sizeof(vector), GFP_KERNEL);
-
-	if (!bd_vector)
-		goto mem_err;
-
-	bd_vector->capacity = INIT_VECTOR_CAP;
-	bd_vector->size = 0;
-	bd_vector->arr = kcalloc(bd_vector->capacity, sizeof(struct bdrm_manager *), GFP_KERNEL);
-
-	if (!bd_vector->arr)
-		goto mem_err;
-
-	return 0;
-mem_err:
-	kfree(bd_vector);
-	bd_vector = NULL;
-	pr_err("memory allocation failed\n");
-	return -ENOMEM;
-}
 
 static int vector_add_bd(struct bdrm_manager *current_bdev_manager)
 {
-	struct bdrm_manager *new_array;
-
-	if (bd_vector->size < bd_vector->capacity) {
-		pr_info("Vector wasn't resized\n");
-	} else {
-		pr_info("Vector was resized\n");
-
-		bd_vector->capacity *= 2;
-		new_array = krealloc(bd_vector->arr, bd_vector->capacity, GFP_KERNEL);
-
-		if (!new_array) {
-			pr_info("Vector's array allocation failed\n");
-			return -ENOMEM;
-		}
-		bd_vector->arr = new_array;
-	}
-
-	bd_vector->arr[bd_vector->size] = *current_bdev_manager;
-	bd_vector->size++;
+	list_add(&current_bdev_manager->list, &bd_list);
 
 	return 0;
 }
 
-static int vector_check_bd_manager_by_name(char *bd_name)
+static int check_bdrm_manager_by_name(char *bd_name)
 {
-	int i;
+	struct bdrm_manager *entry;
 
-	for (i = 0; i < bd_vector->size; i++) {
-		if (bd_vector->arr[i].middle_disk->disk_name == bd_name && bd_vector->arr[i].bdev_handler != NULL)
-			return 0;
+	list_for_each_entry(entry, &bd_list, list) {
+		if (entry->middle_disk->disk_name == bd_name && entry->bdev_handler != NULL) 
+		return 0;
 	}
+
 	return -1;
+}
+
+static struct bdrm_manager *get_list_element_by_index(int index) {
+	struct bdrm_manager *entry;
+	int i = 0;
+
+	// Iterate over the list
+	list_for_each_entry(entry, &bd_list, list) {
+		if (i == index) {
+			return entry;
+		}
+		i++;
+	}
+
+	return NULL;
 }
 
 static int convert_to_int(const char *arg)
@@ -108,8 +79,8 @@ static int convert_to_int(const char *arg)
 
 static int check_bio_link(struct bio *bio)
 {
-	if (vector_check_bd_manager_by_name(bio->bi_bdev->bd_disk->disk_name)) {
-		pr_err("No such bd_manager with middle disk %s and not empty handler\n", bio->bi_bdev->bd_disk->disk_name);
+	if (check_bdrm_manager_by_name(bio->bi_bdev->bd_disk->disk_name)) {
+		pr_err("No such bdrm_manager with middle disk %s and not empty handler\n", bio->bi_bdev->bd_disk->disk_name);
 		return -EINVAL;
 	}
 
@@ -196,7 +167,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 	pr_info("READ: head: %lu, key: %p\n", (unsigned long)bptree_head, original_sector);
 
 	if (redirected_sector == NULL) {
-		pr_warn("Sector: %lu isn't mapped\n", original_sector);
+		pr_warn("Sector: %lu isn't mapped\n", *original_sector);
 
 		redirected_sector = kmalloc(sizeof(unsigned long), GFP_KERNEL);
 		*redirected_sector = next_free_sector;
@@ -251,8 +222,8 @@ static void bdr_submit_bio(struct bio *bio)
 
 	pr_info("Redirect index in vector = %d\n", bdrm_current_redirect_pair_index);
 
-	current_redirect_manager = &bd_vector->arr[bdrm_current_redirect_pair_index];
-	current_bptree_head = bd_vector->arr[bdrm_current_redirect_pair_index].map_tree;
+	current_redirect_manager = get_list_element_by_index(bdrm_current_redirect_pair_index);
+	current_bptree_head = get_list_element_by_index(bdrm_current_redirect_pair_index)->map_tree;
 	clone = bio_alloc_clone(current_redirect_manager->bdev_handler->bdev, bio, GFP_KERNEL, bdrm_pool);
 
 	if (!clone) {
@@ -274,7 +245,7 @@ static void bdr_submit_bio(struct bio *bio)
 		pr_warn("Unknown Operation in abio\n");
 	}
 
-	if (IS_ERR(status)) {
+	if (IS_ERR((void*) (intptr_t) status)) {
 		pr_err("Segment setup went wrong\n");
 		bio_io_error(bio);
 		return;
@@ -305,7 +276,7 @@ static struct gendisk *init_disk_bd(char *bd_name)
 
 	new_disk->major = bdrm_major;
 	new_disk->first_minor = 1;
-	new_disk->minors = bd_vector->size;
+	new_disk->minors = MAX_MINORS_AM;
 	new_disk->fops = &bdr_bio_ops;
 
 	if (bd_name) {
@@ -316,7 +287,12 @@ static struct gendisk *init_disk_bd(char *bd_name)
 		goto free_bd_meta;
 	}
 
-	linked_manager = &bd_vector->arr[bd_vector->size - 1];
+	if (list_empty(&bd_list)) {
+		pr_info("Couldn't init disk, bc list is empty\n");
+		return NULL;
+	}
+
+	linked_manager = list_last_entry(&bd_list, struct bdrm_manager, list);
 	set_capacity(new_disk, get_capacity(linked_manager->bdev_handler->bdev->bd_disk));
 
 	return new_disk;
@@ -375,7 +351,7 @@ static char *create_disk_name_by_index(int index)
 
 /**
  * Sets the name for a new BD, that will be used as 'device in the middle'.
- * Adds disk to the last bd_manager, that was modified by adding bdev_handler through check_and_open_bd()
+ * Adds disk to the last bdrm_manager, that was modified by adding bdev_handler through check_and_open_bd()
  *
  * @name_index - an index for disk name (make sense only in name displaying, DOESN'T SYNC WITH VECTOR INDICES)
  */
@@ -397,8 +373,13 @@ static int create_bd(int name_index)
 		goto disk_init_err;
 	}
 
-	bd_vector->arr[bd_vector->size - 1].middle_disk = new_disk;
-	strcpy(bd_vector->arr[bd_vector->size - 1].middle_disk->disk_name, disk_name);
+	if (list_empty(&bd_list)) {
+		pr_info("Couldn't init disk, bc list is empty\n");
+		goto disk_init_err;
+	}
+
+	list_last_entry(&bd_list, struct bdrm_manager, list)->middle_disk = new_disk;
+	strcpy(list_last_entry(&bd_list, struct bdrm_manager, list)->middle_disk->disk_name, disk_name);
 
 	status = add_disk(new_disk);
 
@@ -422,21 +403,21 @@ disk_init_err:
 
 static int delete_bd(int index)
 {
-	if (bd_vector->arr[index].bdev_handler) {
-		bdev_release(bd_vector->arr[index].bdev_handler);
-		bd_vector->arr[index].bdev_handler = NULL;
+	if (get_list_element_by_index(index)->bdev_handler) {
+		bdev_release(get_list_element_by_index(index)->bdev_handler);
+		get_list_element_by_index(index)->bdev_handler = NULL;
 	} else {
 		pr_info("Bdev handler of %d is empty\n", index + 1);
 	}
 
-	if (bd_vector->arr[index].middle_disk) {
-		del_gendisk(bd_vector->arr[index].middle_disk);
-		put_disk(bd_vector->arr[index].middle_disk);
-		bd_vector->arr[index].middle_disk = NULL;
+	if (get_list_element_by_index(index)->middle_disk) {
+		del_gendisk(get_list_element_by_index(index)->middle_disk);
+		put_disk(get_list_element_by_index(index)->middle_disk);
+		get_list_element_by_index(index)->middle_disk = NULL;
 	}
-	if (bd_vector->arr[index].map_tree) {
-		btree_destroy(bd_vector->arr[index].map_tree);
-		bd_vector->arr[index].map_tree = NULL;
+	if (get_list_element_by_index(index)->map_tree) {
+		btree_destroy(get_list_element_by_index(index)->map_tree);
+		get_list_element_by_index(index)->map_tree = NULL;
 	}
 
 	pr_info("Removed bdev with index %d (from list)\n", index + 1);
@@ -451,22 +432,21 @@ static int delete_bd(int index)
  */
 static int bdr_get_bd_names(char *buf, const struct kernel_param *kp)
 {
-	struct bdrm_manager current_manager;
+	struct bdrm_manager *current_manager;
 	int total_length = 0;
 	int offset = 0;
-	int i_increased;
+	int i = 0;
 	int length = 0;
 
-	if (bd_vector->size == 0) {
+	if (list_empty(&bd_list)) {
 		pr_warn("Vector is empty\n");
 		return 0;
 	}
 
-	for (int i = 0; i < bd_vector->size; i++) {
-		current_manager = bd_vector->arr[i];
-		if (current_manager.bdev_handler != NULL) {
-			i_increased = i + 1;
-			length = sprintf(buf + offset, "%d. %s -> %s\n", i_increased, current_manager.middle_disk->disk_name, current_manager.bdev_handler->bdev->bd_disk->disk_name);
+	list_for_each_entry(current_manager, &bd_list, list) {
+		if (current_manager->bdev_handler != NULL) {
+			i++;
+			length = sprintf(buf + offset, "%d. %s -> %s\n", i, current_manager->middle_disk->disk_name, current_manager->bdev_handler->bdev->bd_disk->disk_name);
 
 			if (length < 0) {
 				pr_err("Error in formatting string\n");
@@ -510,8 +490,6 @@ static int bdr_set_redirect_bd(const char *arg, const struct kernel_param *kp)
 		return -EINVAL;
 	}
 
-	bdrm_current_redirect_pair_index = bd_vector->size;
-
 	if (status) {
 		pr_info("%d\n", status);
 		return PTR_ERR(&status);
@@ -527,7 +505,7 @@ static int bdr_set_redirect_bd(const char *arg, const struct kernel_param *kp)
 	if (status)
 		return PTR_ERR(&status);
 
-	bd_vector->arr[bdrm_current_redirect_pair_index].map_tree = root;
+	list_last_entry(&bd_list, struct bdrm_manager, list)->map_tree = root;
 
 	status = create_bd(index);
 
@@ -542,7 +520,6 @@ static int __init bdr_init(void)
 	int status;
 
 	pr_info("BDR module init\n");
-	vector_init();
 	bdrm_major = register_blkdev(0, MAIN_BLKDEV_NAME);
 
 	if (bdrm_major < 0) {
@@ -562,6 +539,8 @@ static int __init bdr_init(void)
 		goto mem_err;
 	}
 
+	INIT_LIST_HEAD(&bd_list);
+
 	return 0;
 mem_err:
 	kfree(bdrm_pool);
@@ -571,13 +550,20 @@ mem_err:
 
 static void __exit bdr_exit(void)
 {
-	int i;
+	int i = 0;
+	struct bdrm_manager *entry, *tmp;
 
-	if (!bd_vector->arr) {
-		for (i = 0; i < bd_vector->size; i++)
+	if (!list_empty(&bd_list)) {
+		while (get_list_element_by_index(i) != NULL) {
 			delete_bd(i + 1);
-		kfree(bd_vector);
+		}
 	}
+
+	list_for_each_entry_safe(entry, tmp, &bd_list, list) {
+		list_del(&entry->list);
+		kfree(entry);
+	}
+	
 	bioset_exit(bdrm_pool);
 	kfree(bdrm_pool);
 	unregister_blkdev(bdrm_major, MAIN_BLKDEV_NAME);
