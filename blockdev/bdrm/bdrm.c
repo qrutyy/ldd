@@ -420,6 +420,8 @@ static int delete_bd(int index)
 		get_list_element_by_index(index)->map_tree = NULL;
 	}
 
+	list_del(&(get_list_element_by_index(index)->list));
+
 	pr_info("Removed bdev with index %d (from list)\n", index + 1);
 	return 0;
 }
@@ -455,6 +457,9 @@ static int bdr_get_bd_names(char *buf, const struct kernel_param *kp)
 
 			offset += length;
 			total_length += length;
+		}
+		if (list_empty(&bd_list)) {
+			pr_warn("Vector should be empty, but is not\n");
 		}
 	}
 
