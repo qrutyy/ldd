@@ -20,7 +20,7 @@ typedef unsigned long bdrm_sector;
 
 static int bdrm_current_redirect_pair_index;
 static int bdrm_major;
-static bdrm_sector next_free_sector = 8;
+static bdrm_sector free_write_sector = 8;
 struct bio_set *bdrm_pool;
 struct list_head bd_list;
 
@@ -55,7 +55,6 @@ static struct bdrm_manager *get_list_element_by_index(int index) {
 	struct bdrm_manager *entry;
 	int i = 0;
 
-	// Iterate over the list
 	list_for_each_entry(entry, &bd_list, list) {
 		if (i == index) {
 			return entry;
@@ -99,6 +98,8 @@ static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone
 	bdrm_sector *redirected_sector;
 	bdrm_sector *mapped_redirect_address;
 
+	pr_info("Block size: %d\n", main_bio->bi_iter.bi_size);
+
 	original_sector = kmalloc(sizeof(unsigned long), GFP_KERNEL);
 
 	if (original_sector == NULL)
@@ -110,22 +111,23 @@ static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone
 		goto mem_err;
 
 	*original_sector = main_bio->bi_iter.bi_sector + clone_bio->bi_iter.bi_size / SECTOR_SIZE;
-	*redirected_sector = next_free_sector;
+	*redirected_sector = free_write_sector;
 
 	/* Placebo rn. We support only 4kb blocks, so we could hardcode, but in future sizes would be more diverse  */
-	next_free_sector += (clone_bio->bi_iter.bi_size + SECTOR_SIZE - 1) / SECTOR_SIZE;
+	free_write_sector += (clone_bio->bi_iter.bi_size + SECTOR_SIZE - 1) / SECTOR_SIZE;
 	mapped_redirect_address = btree_lookup(bptree_head, &btree_geo64, original_sector);
 
 	pr_info("WRITE: head : %lu, key: %p, val: %p\n", (unsigned long)bptree_head, original_sector, redirected_sector);
+	pr_info("Sector size: %d, next free sector: %d\n", SECTOR_SIZE, free_write_sector);
 
 	if (mapped_redirect_address && mapped_redirect_address != redirected_sector) {
 		btree_remove(bptree_head, &btree_geo64, original_sector);
-		pr_info("DEBUG: removed old mapping\n");
+		pr_info("DEBUG: removed old mapping (mapped_redirect_address = %p redirected_sector = %p)\n", mapped_redirect_address, redirected_sector);
 	}
 
-	status = btree_insert(bptree_head, &btree_geo64, original_sector, redirected_sector, GFP_KERNEL);
+        status = btree_insert(bptree_head, &btree_geo64, original_sector, redirected_sector, GFP_KERNEL);
 
-	if (status)
+        if (status)
 		return PTR_ERR(&status);
 
 	clone_bio->bi_iter.bi_sector = *redirected_sector;
@@ -143,13 +145,8 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 {
 	bdrm_sector *original_sector;
 	bdrm_sector *redirected_sector;
-	int status;
 
-	/*if (clone_bio->bi_iter.bi_size != 4096) {
-		pr_err("Undefined block size: %d\n", clone_bio->bi_iter.bi_size);
-		return -EFBIG;
-	}
-	*/	
+	pr_info("Block size: %d\n", main_bio->bi_iter.bi_sector);
 
 	original_sector = kmalloc(sizeof(unsigned long), GFP_KERNEL);
 
@@ -161,27 +158,33 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 	redirected_sector = btree_lookup(bptree_head, &btree_geo64, original_sector);
 
 	if (redirected_sector != NULL) {
-		pr_info("READ: head: %lu, key: %p, val: %p\n", (unsigned long)bptree_head, original_sector, redirected_sector);
-		pr_info("val int: %lu\n", *redirected_sector);
+		pr_info("Found redirected sector: %lu\n", *redirected_sector);
+	} else {
+		pr_info("Redirected ssector has not been found\n");
 	}
-	pr_info("READ: head: %lu, key: %p\n", (unsigned long)bptree_head, original_sector);
+
+	pr_info("READ: head: %lu, key: %p, val: %p\n", (unsigned long)bptree_head, original_sector, redirected_sector);
 
 	if (redirected_sector == NULL) {
-		pr_warn("Sector: %lu isn't mapped\n", *original_sector);
-
+		pr_info("Sector: %lu isnt mapped\n", *original_sector);
 		redirected_sector = kmalloc(sizeof(unsigned long), GFP_KERNEL);
-		*redirected_sector = next_free_sector;
 
-		/* Update next_free_sector to the next available sector */
-		next_free_sector += (clone_bio->bi_iter.bi_size + SECTOR_SIZE - 1) / SECTOR_SIZE;
+		*redirected_sector = *original_sector;
+		// What should we do in this case?
 
-		pr_info("READ: head: %lu, key: %p, val: %p\n", (unsigned long)bptree_head, original_sector, redirected_sector);
-		status = btree_insert(bptree_head, &btree_geo64, original_sector, redirected_sector, GFP_KERNEL);
+		
+		// *redirected_sector = free_read_sector;
 
-		if (status < 0) {
-			pr_err("Failed to insert mapping for sector %p\n", (void *)original_sector);
-			return -EFAULT;
-		}
+		// /* Update next_free_sector to the next available sector */
+		// free_read_sector += (clone_bio->bi_iter.bi_size + SECTOR_SIZE - 1) / SECTOR_SIZE;
+
+		// pr_info("READ: head: %lu, key: %p, val: %p\n", (unsigned long)bptree_head, original_sector, redirected_sector);
+                // status = btree_insert(bptree_head, &btree_geo64, original_sector, redirected_sector, GFP_KERNEL);
+
+                // if (status < 0) {
+		// 	pr_err("Failed to insert mapping for sector %p\n", (void *)original_sector);
+		// 	return -EFAULT;
+		// }
 	}
 
 	clone_bio->bi_iter.bi_sector = *redirected_sector;
@@ -224,6 +227,7 @@ static void bdr_submit_bio(struct bio *bio)
 
 	current_redirect_manager = get_list_element_by_index(bdrm_current_redirect_pair_index);
 	current_bptree_head = get_list_element_by_index(bdrm_current_redirect_pair_index)->map_tree;
+
 	clone = bio_alloc_clone(current_redirect_manager->bdev_handler->bdev, bio, GFP_KERNEL, bdrm_pool);
 
 	if (!clone) {
@@ -236,10 +240,8 @@ static void bdr_submit_bio(struct bio *bio)
 	clone->bi_end_io = bdrm_bio_end_io;
 
 	if (bio_op(bio) == REQ_OP_READ) {
-		pr_info("Set up READ op.\n");
 		status = setup_read_from_clone_segments(bio, clone, current_bptree_head);
 	} else if (bio_op(bio) == REQ_OP_WRITE) {
-		pr_info("Set up WRITE op.\n");
 		status = setup_write_in_clone_segments(bio, clone, current_bptree_head);
 	} else {
 		pr_warn("Unknown Operation in abio\n");
