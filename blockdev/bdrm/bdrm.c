@@ -115,6 +115,7 @@ static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone
 
 	/* Placebo rn. We support only 4kb blocks, so we could hardcode, but in future sizes would be more diverse  */
 	// free_write_sector += (clone_bio->bi_iter.bi_size + SECTOR_SIZE - 1) / SECTOR_SIZE;
+
 	mapped_redirect_address = btree_lookup(bptree_head, &btree_geo64, original_sector);
 
 	pr_info("WRITE: head : %lu, key: %p, val: %p\n", (unsigned long)bptree_head, original_sector, redirected_sector);
@@ -167,6 +168,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 
 	if (redirected_sector == NULL) {
 		pr_info("Sector: %lu isnt mapped\n", *original_sector);
+
 		redirected_sector = kmalloc(sizeof(unsigned long), GFP_KERNEL);
 
 		*redirected_sector = *original_sector;
@@ -227,7 +229,14 @@ static void bdr_submit_bio(struct bio *bio)
 
 	current_redirect_manager = get_list_element_by_index(bdrm_current_redirect_pair_index);
 	current_bptree_head = get_list_element_by_index(bdrm_current_redirect_pair_index)->map_tree;
+<<<<<<< HEAD
+<<<<<<< HEAD
 
+=======
+>>>>>>> d61bdaa (fix: remove bd_vector with kernel list)
+=======
+
+>>>>>>> 771a471 (fix: resolve btree SEGFAULT)
 	clone = bio_alloc_clone(current_redirect_manager->bdev_handler->bdev, bio, GFP_KERNEL, bdrm_pool);
 
 	if (!clone) {
