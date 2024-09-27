@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import os
 
-BDRM_DIR = '../ldd/blockdev/bdrm/'  # Update this path if needed
+BDRM_DIR = '../'
 TEST_DIR = './test_files'
 DEF_BLOCK_SIZES = [1, 2, 4, 8, 16, 32, 64]
 
