@@ -111,10 +111,10 @@ static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone
 		goto mem_err;
 
 	*original_sector = main_bio->bi_iter.bi_sector + clone_bio->bi_iter.bi_size / SECTOR_SIZE;
-	*redirected_sector = free_write_sector;
+	*redirected_sector = *original_sector;
 
 	/* Placebo rn. We support only 4kb blocks, so we could hardcode, but in future sizes would be more diverse  */
-	free_write_sector += (clone_bio->bi_iter.bi_size + SECTOR_SIZE - 1) / SECTOR_SIZE;
+	// free_write_sector += (clone_bio->bi_iter.bi_size + SECTOR_SIZE - 1) / SECTOR_SIZE;
 	mapped_redirect_address = btree_lookup(bptree_head, &btree_geo64, original_sector);
 
 	pr_info("WRITE: head : %lu, key: %p, val: %p\n", (unsigned long)bptree_head, original_sector, redirected_sector);
@@ -146,7 +146,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 	bdrm_sector *original_sector;
 	bdrm_sector *redirected_sector;
 
-	pr_info("Block size: %d\n", main_bio->bi_iter.bi_sector);
+	pr_info("Block size: %d\n", main_bio->bi_iter.bi_size);
 
 	original_sector = kmalloc(sizeof(unsigned long), GFP_KERNEL);
 
