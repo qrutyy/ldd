@@ -1,0 +1,28 @@
+[global]
+ioengine=libaio
+direct=1
+randrepeat=1
+size=100M
+verify=sha256
+numjobs=1
+
+###Output logs to draw graphs - optional###
+write_bw_log=write_bw_log
+write_lat_log=write_lat_log
+write_iops_log=write_iops_log
+log_avg_msec=10
+
+#####################
+#Test Specifications#
+#####################
+
+
+# Two RANDOM 2k tests, READ and WRITE
+
+[random_write_2k]
+rw=randwrite
+blocksize=2k
+ramp_time=10s
+iodepth=1
+filename=/dev/bdr1
+stonewall
