@@ -5,7 +5,8 @@ import subprocess
 import os
 
 BDRM_DIR = '../'
-TEST_DIR = './test_files'
+TEST_DIR = './generated_tf'
+
 DEF_BLOCK_SIZES = [1, 2, 4, 8, 16, 32, 64]
 
 DEF_SUITABLE_FB = {
@@ -16,9 +17,9 @@ DEF_SUITABLE_FB = {
     256: [1, 2, 4, 8, 16, 32, 64, 128],
     512: [1, 2, 4, 8, 16, 32, 64, 128, 256],
     1024: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
-    2048: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024],
-    4096: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048],
-    8192: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096],
+    2048: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
+    4096: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
+    8192: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
     # Not default ones
     10: [1, 2, 5, 10],
     200: [1, 2, 4, 10, 20, 50, 100],
@@ -28,17 +29,16 @@ DEF_SUITABLE_FB = {
 test_count = 0
 errors = []
 
-
-def prepare_driver():
-    try:
-        subprocess.run(['make', 'clean'], cwd=BDRM_DIR, check=True, text=True)
-        subprocess.run(['make'], cwd=BDRM_DIR, check=True, text=True)
-        subprocess.run(['insmod', 'bdrm.ko'], cwd=BDRM_DIR, check=True, text=True)
-        subprocess.run(['echo', '1 /dev/vdb', '>', '/sys/module/bdrm/parameters/set_redirect_bd'], shell=True,
-                       check=True)
-        print("Driver prepared successfully.")
-    except subprocess.CalledProcessError as e:
-        print(f"Error preparing the driver: {e}")
+# def prepare_driver():
+    # try:
+    #     subprocess.run(['make', 'clean'], cwd=BDRM_DIR, check=True, text=True)
+    #     subprocess.run(['make'], cwd=BDRM_DIR, check=True, text=True)
+    #     subprocess.run(['insmod', 'bdrm.ko'], cwd=BDRM_DIR, check=True, text=True)
+    #     subprocess.run(['echo', '1 /dev/vdb', '>', '/sys/module/bdrm/parameters/set_redirect_bd'], shell=True,
+    #                    check=True)
+    #     print("Driver prepared successfully.")
+    # except subprocess.CalledProcessError as e:
+    #     print(f"Error preparing the driver: {e}")
 
 
 def clean_test_dir(test_dir):
@@ -59,8 +59,9 @@ def clean_test_dir(test_dir):
             print(f"Failed to delete {file_path}. Reason: {e}")
 
 
-def create_test_files(num_files, file_size_kb, output_dir='./test_files'):
+def create_test_files(num_files, file_size_kb, output_dir=TEST_DIR):
     os.makedirs(output_dir, exist_ok=True)
+
     for i in range(num_files):
         input_file_name = f"in_tf_{i + 1}_{file_size_kb}KB.txt"
         output_file_name = f"out_tf_{i + 1}_{file_size_kb}KB.txt"
@@ -135,7 +136,7 @@ def join_files(num_files, file_size_kb, block_size_kb):
 
 
 def proceed_run(num_files, file_size_kb, block_size_kb):
-    prepare_driver()
+    #prepare_driver()
     clean_test_dir(TEST_DIR)
 
     if file_size_kb == 0:
@@ -152,7 +153,7 @@ def proceed_run(num_files, file_size_kb, block_size_kb):
     else:
         print("\n\033[1mAll files are identical\033[0m")
 
-    print(f"\n\033[1mTest passed: {test_count}, Failed: {int(len(errors) / 2)}\n\033[om")
+    print(f"\n\033[1mTest passed: {test_count}, Failed: {int(len(errors) / 2)}\n\033[o \n")
 
 
 if __name__ == '__main__':
@@ -164,6 +165,11 @@ if __name__ == '__main__':
                              'Set to -1 for running all file sizes.')
     parser.add_argument('--block_size_kb', type=int, default=0,
                         help='Block size for dd command in KB. \nSet to 0 for automatic selection.')
-
+    parser.add_argument('--clear', '-c', help='Apply to clear test utilities.', action='store_true')
+    
     args = parser.parse_args()
-    proceed_run(num_files=args.num_files, file_size_kb=args.file_size_kb, block_size_kb=args.block_size_kb)
+
+    if args.clear:
+        clean_test_dir(TEST_DIR)
+    else:
+        proceed_run(num_files=args.num_files, file_size_kb=args.file_size_kb, block_size_kb=args.block_size_kb)
