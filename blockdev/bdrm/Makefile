@@ -26,6 +26,7 @@ clean:
 else
     # called from kernel build system: just declare what our modules are
     obj-m := bdrm.o
+    CFLAGS_bdrm.o := -DDEBUG
 endif
 
 
