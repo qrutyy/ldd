@@ -1,4 +1,5 @@
 CONFIG_MODULE_SIG=n
+name = bdrm
 # To build modules outside of the kernel tree, we run "make"
 # in the kernel source tree; the Makefile these then includes this
 # Makefile once again.
@@ -18,16 +19,16 @@ modules:
 modules_install:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules_install
 
+ins:
+	insmod $(name).ko
+
+echo_set:
+	echo -n "1 /dev/vdb" > /sys/module/$(name)/parameters/set_redirect_bd
+
 clean:
 	rm -rf *.o *~ core .depend .*.cmd *.ko *.mod.c .tmp_versions *.symvers *.mod *.order
 
 .PHONY: modules modules_install clean
 
-else
-    # called from kernel build system: just declare what our modules are
-    obj-m := bdrm.o
-    CFLAGS_bdrm.o := -DDEBUG
 endif
-
-
 
