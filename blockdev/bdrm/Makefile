@@ -22,7 +22,7 @@ modules_install:
 ins:
 	insmod $(name).ko
 
-echo_set:
+set:
 	echo -n "1 /dev/vdb" > /sys/module/$(name)/parameters/set_redirect_bd
 
 clean:

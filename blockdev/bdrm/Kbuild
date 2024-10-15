@@ -9,4 +9,4 @@ ccflags-y := 	-Wall					\
 		-Werror=implicit-function-declaration	
 
 obj-m := bdrm.o
-mbdrm-objs := main.o btreeutils.o
+bdrm-objs := main.o btreeutils.o
