@@ -164,8 +164,6 @@ void *btree_get_prev_no_rep(struct btree_head *head, struct btree_geo *geo,
 
 	if (head->height == 0)
 		return NULL;
-retry:
-	dec_key(geo, key);
 
 	node = head->node;
 	for (height = head->height ; height > 1; height--) {
@@ -196,7 +194,7 @@ miss:
 	if (retry_key) {
 		longcpy(key, retry_key, geo->keylen);
 		retry_key = NULL;
-		goto retry;
+		pr_err("btree_get_prev_no_rep: key miss\n");
 	}
 	return NULL;
 }
