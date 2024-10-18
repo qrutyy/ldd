@@ -184,7 +184,6 @@ static struct bio *setup_new_clone(struct bio *clone_bio, bdrm_sector new_clone_
 	}
 
 	new_clone->bi_private = clone_bio;
-	new_clone->bi_end_io = bdrm_bio_end_io;
 	new_clone->bi_iter.bi_size = to_read;
 	new_clone->bi_iter.bi_sector = new_clone_sector;
 	return new_clone;
@@ -272,17 +271,10 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 		
 		prev_rs_info = btree_get_prev_no_rep(bptree_head, &btree_geo64, original_sector);
 		pr_info("Prev rs = %lu\n", *prev_rs_info->redirected_sector);
-
-		// Do we really need it?
-		// diff = *original_sector - *(prev_rs_info->redirected_sector) - prev_rs_info->block_size;
-		// pr_info("Difference = %ld\n", diff);
-
 		// read the part that is == block_size
  		clone_bio->bi_iter.bi_sector = *prev_rs_info->redirected_sector + diff;
 		clone_bio->bi_iter.bi_size = main_bio->bi_iter.bi_size - diff;
-		
-		pr_info("Main bi_size = %u found_rs block_size = %u\n", main_bio->bi_iter.bi_size, prev_rs_info->block_size);
-
+			
 		to_read_in_clone = (*original_sector * 512 + main_bio->bi_iter.bi_size) - (*prev_rs_info->redirected_sector * 512 + prev_rs_info->block_size);
 		/* Address of main block end (reading from original sector -> bi_size)  -  First address of written blocks after original_sector */
 		pr_info("To read = %d, main_bi_size = %u, prev_rsbs = %u\n", to_read_in_clone, main_bio->bi_iter.bi_size, prev_rs_info->block_size);
@@ -315,6 +307,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 			*curr_rs_info->redirected_sector, curr_rs_info->block_size, main_bio->bi_iter.bi_size);
 
 		if (curr_rs_info->block_size >= main_bio->bi_iter.bi_size) {
+			pr_info("cr = %lu mb bi_size = %lu\n", *curr_rs_info->redirected_sector, main_bio->bi_iter.bi_size);
 			clone_bio->bi_iter.bi_sector = *curr_rs_info->redirected_sector;
 		} else if (curr_rs_info->block_size < main_bio->bi_iter.bi_size) { // Mapped sector is smaller than BIO
 			to_read_in_clone = main_bio->bi_iter.bi_size - curr_rs_info->block_size; // size of block to read ahead
@@ -336,7 +329,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 			clone_bio->bi_iter.bi_sector += curr_rs_info->block_size / SECTOR_SIZE; // IS IT TRUE? FIX
 			clone_bio->bi_iter.bi_size = to_read_in_clone;
 
-			pr_info("RECURSIVE READ: new_clone bs = %u, main_bio to read = %u\n"
+			pr_info("RECURSIVE READ: new_clone bs = %u, main_bio to* read = %u\n"
 					"new_clone start_sector = %llu\n",
 					new_clone->bi_iter.bi_size, main_bio->bi_iter.bi_size,
 					new_clone->bi_iter.bi_sector);
@@ -348,9 +341,6 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 
 			submit_bio(new_clone);
 			pr_info("Submitted bio\n\n");
-			return 0;
-
-			
 		}
 	}
 	return 0;
