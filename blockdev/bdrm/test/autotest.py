@@ -50,20 +50,18 @@ def prepare_driver():
         print(f"Error preparing the driver: {e}")
 
 
-def clean_test_dir(test_dir):
-    if not os.path.exists(test_dir):
-        print(f"Directory {test_dir} does not exist.")
+def clean_dir(dir):
+    if not os.path.exists(dir):
+        print(f"Directory {dir} does not exist.")
         return
 
-    for filename in os.listdir(test_dir):
-        file_path = os.path.join(test_dir, filename)
+    for filename in os.listdir(dir):
+        file_path = os.path.join(dir, filename)
         try:
             if os.path.isfile(file_path) or os.path.islink(file_path):
                 os.unlink(file_path)
-                print(f"Removed file: {file_path}")
-            elif os.path.isdir(file_path):
+              elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
-                print(f"Removed directory: {file_path}")
         except Exception as e:
             print(f"Failed to delete {file_path}. Reason: {e}")
 
@@ -149,7 +147,7 @@ def run_test_files(num_files, file_size_kb, block_size_kb):
        
 def proceed_run(num_files, file_size_kb, block_size_kb):
     prepare_driver()
-    clean_test_dir(TEST_DIR)
+    clean_dir(TEST_DIR)
 
     if file_size_kb == 0:
         file_size_kb = random.choice(DEF_SUITABLE_FB)
@@ -166,6 +164,7 @@ def proceed_run(num_files, file_size_kb, block_size_kb):
         print("\n\033[1mAll files are identical\033[0m")
 
     print(f"\n\033[1mTest passed: {test_count}, Failed: {int(len(errors) / 2)}\n\033[o \n")
+    clean_dir(TEST_DIR)
 
 
 if __name__ == '__main__':
@@ -182,6 +181,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.clear:
-        clean_test_dir(TEST_DIR)
+        clean_dir(TEST_DIR)
     else:
         proceed_run(num_files=args.num_files, file_size_kb=args.file_size_kb, block_size_kb=args.block_size_kb)
