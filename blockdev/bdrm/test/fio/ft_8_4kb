@@ -1,0 +1,24 @@
+[global]
+ioengine=libaio
+direct=1
+randrepeat=1
+size=200M
+
+numjobs=1
+filename=/dev/bdr1
+stonewall
+
+# 8k RANDOM WRITE TEST
+[random_write_8k]
+rw=randwrite
+blocksize=8k
+ramp_time=10s
+iodepth=1
+
+# 4k RANDOM READ WITH VERIFY
+[random_read_verify_4k]
+rw=randread
+blocksize=4k
+ramp_time=10s
+iodepth=1
+
