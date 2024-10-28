@@ -16,7 +16,7 @@ echo "index path" > /sys/module/bdrm/parameters/set_redirect_bd
 ```
 **index** - postfix for a 'device in the middle' (prefix is bdr), **path** - to which block device to redirect
 
-*Can be reduced to `make`, `make ins` and `make set`*
+*Can be reduced to `make`, `make ins` and `make set` *
 
 ### Sending requests: 
 
