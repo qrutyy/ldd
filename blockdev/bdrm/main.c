@@ -101,6 +101,18 @@ static void bdrm_bio_end_io(struct bio *bio) {
 	bio_put(bio);
 }
 
+/**
+ * Configures write operations in clone segments for the specified BIO.
+ * Allocates memory for original and redirected sector data, retrieves the current
+ * redirection info from the B+Tree, and updates the mapping if necessary.
+ * The redirected sector is then set in the clone BIO for processing.
+ *
+ * @main_bio - The original BIO representing the main device I/O operation.
+ * @clone_bio - The clone BIO representing the redirected I/O operation.
+ * @bptree_head - Pointer to the B+Tree header used for sector redirection mapping.
+ *
+ * It returns 0 on success, -ENOMEM if memory allocation fails.
+ */
 static int setup_write_in_clone_segments(struct bio *main_bio,
 										 struct bio *clone_bio,
 										 struct btree_head *bptree_head) {
@@ -170,9 +182,21 @@ mem_err:
 	return -ENOMEM;
 }
 
+/**
+ * Prepares a BIO split for partial handling of a clone BIO. Splits the clone BIO
+ * into two parts, so the first half (split_bio) can be processed independently.
+ * This function submits the split_bio to be read separately from the remaining
+ * data in clone_bio.
+ *
+ * @clone_bio - The clone BIO to be split.
+ * @main_bio - The main BIO containing the primary I/O request data.
+ * @nearest_bs - The block size in bytes closest to the current data segment.
+ *
+ * It returns nearest_bs on successful split, -1 if memory allocation fails.
+ */
 static int setup_bio_split(struct bio *clone_bio, struct bio *main_bio, int nearest_bs) {
 	struct bio *split_bio; // first half of splitted bio
-	pr_info("near bs = %lu, clone = %lu\n", nearest_bs / SECTOR_SIZE, clone_bio->bi_iter.bi_size / SECTOR_SIZE);	
+
 	split_bio = bio_split(clone_bio, nearest_bs / SECTOR_SIZE, GFP_KERNEL, bdrm_pool);
 	if (!split_bio)
 		return -1;
@@ -181,34 +205,43 @@ static int setup_bio_split(struct bio *clone_bio, struct bio *main_bio, int near
 		split_bio->bi_iter.bi_size, main_bio->bi_iter.bi_size, split_bio->bi_iter.bi_sector);
 	pr_info("RECURSIVE READ p2: bs = %u, main to read = %u,  st sec = %llu\n",
 		clone_bio->bi_iter.bi_size, main_bio->bi_iter.bi_size, clone_bio->bi_iter.bi_sector);
-/*
-			next_rs_info = btree_get_next(bptree_head, &btree_geo, original_sector);
-			if (clone_bio->bi_iter.bi_size > next_rs_info) {
-				to execute the setup_read
-			}
-*/
+
 	submit_bio(split_bio);
 	pr_info("Submitted bio\n\n");
 	
 	return nearest_bs;
 }
 
+
+/**
+ * Configures read operations for clone segments based on redirection info from
+ * the B+Tree. This function retrieves the mapped or previous sector information,
+ * determines the appropriate sector to read, and optionally splits the clone BIO
+ * if more data is required. Handles cases where redirected and original sector
+ * start points differ.
+ *
+ * @main_bio - The primary BIO representing the main device I/O operation.
+ * @clone_bio - The clone BIO representing the redirected I/O operation.
+ * @bptree_head - Pointer to the B+Tree header used for sector redirection mapping.
+ * @redirect_manager - Manages redirection data for mapped sectors.
+ *
+ * It returns 0 on success, -ENOMEM if memory allocation fails, or -1 on split error.
+ */
 static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clone_bio,
 							   struct btree_head *bptree_head,
 							   struct bdrm_manager *redirect_manager) {
+
+	redir_sector_info *curr_rs_info; 	
+	redir_sector_info *prev_rs_info;
+	redir_sector_info *last_rs = NULL;
 	bdrm_sector orig_sector_val = 0;
 	bdrm_sector *original_sector = &orig_sector_val;
 	bdrm_sector *redirected_sector;
-	redir_sector_info *curr_rs_info; // Old redirected_sector from B+Tree
-	redir_sector_info *prev_rs_info; // Previous redir_sector
-	int to_read_in_clone; // just auxiliary var, for more readable code
-	redir_sector_info *last_rs = NULL;
-	int status;
+	int32_t to_read_in_clone; 
+	int16_t status;
 	
 	if (main_bio->bi_iter.bi_size == 0) 
 		return 0;
-
-	pr_info("Entered read\n");
 
 	curr_rs_info = kmalloc(sizeof(struct redir_sector_info), GFP_KERNEL);
 
@@ -220,16 +253,10 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 	if (prev_rs_info == NULL)
 		goto mem_err;
 
-
-	pr_info("Original sector: bi_sector = %llu, block_size = %u\n",
-			main_bio->bi_iter.bi_sector, main_bio->bi_iter.bi_size);
-
-	*original_sector = SECTOR_OFFSET + main_bio->bi_iter.bi_sector; // End of read operatio
-
+	*original_sector = SECTOR_OFFSET + main_bio->bi_iter.bi_sector;
 	curr_rs_info = btree_lookup(bptree_head, &btree_geo64, original_sector);
 
 	pr_info("READ: head: %lu, key: %lu\n", (unsigned long)bptree_head, *original_sector);
-
 
 	if (!curr_rs_info) { // Read & Write sector starts aren't equal.
 		pr_info("Sector: %lu isnt mapped\n", *original_sector);
@@ -247,41 +274,38 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
  		pr_info("last_rs = %lu\n", *last_rs->redirected_sector);
 
 		if (*original_sector > *last_rs->redirected_sector) {
-			/*  we got some stupid system check in the middle of responding to
-				bio)... It means that we are processing bio, whose orig_sector
-				isn't mapped and is bigger then every mapped sector.	*/
+			/*  We got a system check in the middle of respond to
+			bio)... It means that we are processing bio, whose orig_sector
+			isn't mapped and is bigger then every mapped sector.  */
 			clone_bio->bi_iter.bi_sector = *original_sector;
 			pr_info("Recognised system bio\n");
 			return 0;
 		}
 		
 		prev_rs_info = btree_get_prev_no_rep(bptree_head, &btree_geo64, original_sector);
-		pr_info("Prev rs = %lu\n", *prev_rs_info->redirected_sector);
-
+		clone_bio->bi_iter.bi_sector = *original_sector;
 		to_read_in_clone = (*original_sector * 512 + main_bio->bi_iter.bi_size) - (*prev_rs_info->redirected_sector * 512 + prev_rs_info->block_size);
-		/* Address of main block end (reading fr:om original sector -> bi_size)  -  First address of written blocks after original_sector */
-		pr_info("To read = %d, main_bi_size = %u, prev_rsbs = %u\n", to_read_in_clone, main_bio->bi_iter.bi_size, prev_rs_info->block_size);
-		
- 		clone_bio->bi_iter.bi_sector = *original_sector;
-		pr_info("Clone bio: bi_sector = %llu, bi_size = %u, sectors = %u\n", clone_bio->bi_iter.bi_sector, clone_bio->bi_iter.bi_size, clone_bio->bi_iter.bi_size / SECTOR_SIZE);
+ 		/* Address of main block end (reading fr:om original sector -> bi_size) -  First address of written blocks after original_sector */
 
-		pr_info("%d\n", (clone_bio->bi_iter.bi_size - to_read_in_clone) / SECTOR_SIZE);
+		pr_info("To read = %d, main size = %u, prev_rs bs = %u, prev_rs sector = %lu\n", to_read_in_clone, main_bio->bi_iter.bi_size, prev_rs_info->block_size, *prev_rs_info->redirected_sector);
+		pr_info("Clone bio: sector = %llu, size = %u, sec num = %u\n", clone_bio->bi_iter.bi_sector, clone_bio->bi_iter.bi_size, clone_bio->bi_iter.bi_size / SECTOR_SIZE);
 
 		if (clone_bio->bi_iter.bi_size <= prev_rs_info->block_size + clone_bio->bi_iter.bi_size - to_read_in_clone && clone_bio->bi_iter.bi_sector + clone_bio->bi_iter.bi_size / SECTOR_SIZE > *prev_rs_info->redirected_sector + prev_rs_info->block_size / SECTOR_SIZE) {
 			status = setup_bio_split(clone_bio, main_bio, clone_bio->bi_iter.bi_size - to_read_in_clone);
 			if (status < 0)
 				goto split_err;
+			
 			pr_info("2 To read = %lu, bs = %lu, clone bs = %lu \n", to_read_in_clone, prev_rs_info->block_size, clone_bio->bi_iter.bi_size);
 		} else if (clone_bio->bi_iter.bi_size > prev_rs_info->block_size + clone_bio->bi_iter.bi_size - to_read_in_clone) {
-			while (to_read_in_clone > 0) {
-				pr_info("1 To read = %lu, bs = %lu, clone bs = %lu \n", to_read_in_clone, prev_rs_info->block_size, clone_bio->bi_iter.bi_size);
-			
+			while (to_read_in_clone > 0) {			
 				status = setup_bio_split(clone_bio, main_bio, prev_rs_info->block_size);
 				if (status < 0)
 					goto split_err;
 
 				to_read_in_clone -=	status;	
-				// prev_rs = get next
+				// prev_rs_info = btree_get_next(bptree_head, &btree_geo64, original_sector);
+
+				pr_info("1 To read = %lu, bs = %lu, clone bs = %lu \n", to_read_in_clone, prev_rs_info->block_size, clone_bio->bi_iter.bi_size);
 			}
 			clone_bio->bi_iter.bi_size = prev_rs_info->block_size;
 		}	
@@ -291,20 +315,16 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 		
 		to_read_in_clone = main_bio->bi_iter.bi_size - curr_rs_info->block_size; // size of block to read ahead
 		clone_bio->bi_iter.bi_sector = *curr_rs_info->redirected_sector;
-		pr_info("to read: %d\n", to_read_in_clone);
 
 		while (to_read_in_clone > 0) {
-			pr_info("To read = %lu, bs = %lu\n", to_read_in_clone, curr_rs_info->block_size);
 			to_read_in_clone -= setup_bio_split(clone_bio, main_bio, curr_rs_info->block_size);
 			if (status < 0)
 				goto split_err;
-			// curr_rs = get next
+			/* curr_rs_info = btree_get_next(bptree_head, &btree_geo64, original_sector);
+			pr_info("next rs %lu\n", *curr_rs_info->redirected_sector); */
 		}
-
-		pr_info("last sector %lu", clone_bio->bi_iter.bi_sector);
-		pr_info("last to read: %d\n", to_read_in_clone);
 		clone_bio->bi_iter.bi_size = (to_read_in_clone < 0) ? curr_rs_info->block_size + to_read_in_clone : curr_rs_info->block_size;
-		pr_info("clone size: %u\n", clone_bio->bi_iter.bi_size);
+		pr_info("End of read, Clone: size: %u, sector %lu, to_read = %d\n", clone_bio->bi_iter.bi_size, clone_bio->bi_iter.bi_sector, to_read_in_clone);
 	}
 	return 0;
 
@@ -324,14 +344,15 @@ mem_err:
  * bdr_submit_bio() - Takes the provided bio, allocates a clone (child)
  * for a redirect_bd. Although, it changes the way both bio's will end (+ maps
  * bio address with free one from aim BD in b+tree) and submits them.
+ * 
  * @bio - Expected bio request
  */
 static void bdr_submit_bio(struct bio *bio) {
-	int status;
 	struct bio *clone;
 	struct bdrm_manager *current_redirect_manager;
 	struct btree_head *current_bptree_head;
-	pr_info("Entered submit\n");
+	int16_t status;
+
 	status = check_bio_link(bio);
 
 	if (status) {
@@ -339,16 +360,14 @@ static void bdr_submit_bio(struct bio *bio) {
 		return;
 	}
 
-	current_redirect_manager =
-		get_list_element_by_index(bdrm_current_redirect_pair_index);
-	current_bptree_head =
-		get_list_element_by_index(bdrm_current_redirect_pair_index)->map_tree;
+	current_redirect_manager = get_list_element_by_index(bdrm_current_redirect_pair_index);
+	current_bptree_head = current_redirect_manager->map_tree;
 
 	clone = bio_alloc_clone(current_redirect_manager->bdev_handler->bdev, bio,
 							GFP_KERNEL, bdrm_pool);
 
 	if (!clone) {
-		pr_err("Bio alalocation failed\n");
+		pr_err("Bio allocation failed\n");
 		bio_io_error(bio);
 		return;
 	}
@@ -357,13 +376,12 @@ static void bdr_submit_bio(struct bio *bio) {
 	clone->bi_end_io = bdrm_bio_end_io;
 
 	if (bio_op(bio) == REQ_OP_READ) {
-		pr_info("Entering read\n");
 		status = setup_read_from_clone_segments(bio, clone, current_bptree_head,
 												current_redirect_manager);
 	} else if (bio_op(bio) == REQ_OP_WRITE) {
 		status = setup_write_in_clone_segments(bio, clone, current_bptree_head);
 	} else {
-		pr_warn("Unknown Operation in abio\n");
+		pr_warn("Unknown Operation in bio\n");
 	}
 
 	if (IS_ERR((void *)(intptr_t)status)) {
