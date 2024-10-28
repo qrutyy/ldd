@@ -1,3 +1,4 @@
+from itertools import product
 import argparse
 import random
 import shutil
@@ -10,10 +11,8 @@ TEST_DIR = './generated_tf'
 DEF_BLOCK_SIZES = [1, 2, 4, 8, 16, 32, 64]
 
 DEF_SUITABLE_FB = {
-    16: [1, 2, 4, 8],
-    32: [1, 2, 4, 8, 16],
-    64: [1, 2, 4, 8, 16, 32],
-    128: [1, 2, 4, 8, 16, 32, 64],
+#   file_size: [(write_bs, read_bs), (), ....]
+    128: [(2, 4), (2, 8), (2, 16), (2, ), 16, 32, 64],
     256: [1, 2, 4, 8, 16, 32, 64, 128],
     512: [1, 2, 4, 8, 16, 32, 64, 128, 256],
     1024: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512],
@@ -26,19 +25,29 @@ DEF_SUITABLE_FB = {
     500: [1, 2, 5, 10, 25, 50, 100, 250],
 }
 
+DEF_SUITABLE_FB = [32, 36, 48, 64, 128, 256, 512, 1024, 2048, 4096]
+
 test_count = 0
 errors = []
 
-# def prepare_driver():
-    # try:
-    #     subprocess.run(['make', 'clean'], cwd=BDRM_DIR, check=True, text=True)
-    #     subprocess.run(['make'], cwd=BDRM_DIR, check=True, text=True)
-    #     subprocess.run(['insmod', 'bdrm.ko'], cwd=BDRM_DIR, check=True, text=True)
-    #     subprocess.run(['echo', '1 /dev/vdb', '>', '/sys/module/bdrm/parameters/set_redirect_bd'], shell=True,
-    #                    check=True)
-    #     print("Driver prepared successfully.")
-    # except subprocess.CalledProcessError as e:
-    #     print(f"Error preparing the driver: {e}")
+def get_odd_divs(n):
+    divs = set()
+    for i in range(2, int(n ** 0.5) + 1):
+        if n % i == 0 and i % 2 == 0 and (n // i) % 2 == 0:
+            divs.add(i)
+            divs.add(n // i)
+    return divs
+
+
+def prepare_driver():
+    try:
+        subprocess.run(['make', 'clean'], cwd=BDRM_DIR, check=True, text=True)
+        subprocess.run(['make'], cwd=BDRM_DIR, check=True, text=True)
+        subprocess.run(['make', 'ins'], cwd=BDRM_DIR, check=True, text=True)
+        subprocess.run(['make', 'set'], cwd=BDRM_DIR, check=True, text=True)
+        print("Driver prepared successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error preparing the driver: {e}")
 
 
 def clean_test_dir(test_dir):
@@ -76,46 +85,44 @@ def create_test_files(num_files, file_size_kb, output_dir=TEST_DIR):
         print(f"Created file: {input_file_path} with size {file_size_kb} KB and output file: {output_file_path}")
 
 
-def compare_files(file1, file2):
+def compare_files(file1, file2, block_size, count):
     with open(file1, 'rb') as f1, open(file2, 'rb') as f2:
         while True:
             chunk1 = f1.read(4096)
             chunk2 = f2.read(4096)
 
             if chunk1 != chunk2:
-                return False
+                print("Files are different")
+                errors.append([file1, file2, block_size[0], count])
+                return 
 
             if not chunk1:
-                return True
+                print("Files are identical")
+                return
 
 
-def run_dd_command(input_file, output_file, block_size, count):
-    global test_count
-
+def run_dd_write_command(input_file, block_size, count):
     try:
-        write_cmd = f"dd if={input_file} of=/dev/bdr1 oflag=direct bs={block_size}K count={count}"
+        write_cmd = f"dd if={input_file} of=/dev/bdr1 oflag=direct bs={block_size}k count={count}"
         print(f"Running command: {write_cmd}")
         subprocess.run(write_cmd, shell=True, check=True, text=True)
-
-        read_cmd = f"dd if=/dev/bdr1 of={output_file} iflag=direct bs={block_size}K count={count}"
-        print(f"Running command: {read_cmd}")
-        subprocess.run(read_cmd, shell=True, check=True, text=True)
-
-        print(f"Completed processing file: {input_file}")
-
-        test_count += 1
-
-        if compare_files(input_file, output_file):
-            print("Files are identical")
-        else:
-            print("Files are different")
-            errors.append([input_file, output_file, block_size, count])
 
     except subprocess.CalledProcessError as e:
         print(f"Error during 'dd' command execution: {e}")
 
+def run_dd_read_command(output_file, block_size, count): 
+    try:
+        read_cmd = f"dd if=/dev/bdr1 of={output_file} iflag=direct bs={block_size}k count={count}"
+        print(f"Running command: {read_cmd}")
+        subprocess.run(read_cmd, shell=True, check=True, text=True)
 
-def join_files(num_files, file_size_kb, block_size_kb):
+
+    except subprocess.CalledProcessError as e:
+        print(f"Error during 'dd' command execution: {e}")
+
+def run_test_files(num_files, file_size_kb, block_size_kb):
+    global test_count
+
     create_test_files(num_files, file_size_kb, TEST_DIR)
 
     for i in range(1, num_files + 1):
@@ -123,30 +130,35 @@ def join_files(num_files, file_size_kb, block_size_kb):
         output_file = os.path.join(TEST_DIR, f"out_tf_{i}_{file_size_kb}KB.txt")
         print(input_file)
 
-        file_size_key = max(k for k in DEF_SUITABLE_FB if k <= file_size_kb)
-
         if block_size_kb == 0:
-            suitable_block_sizes = DEF_SUITABLE_FB[file_size_key]
-            for block_size in suitable_block_sizes:
-                count = os.path.getsize(input_file) // (block_size * 1024)
-                run_dd_command(input_file, output_file, block_size, int(count))
+            rw_pairs = list(product(get_odd_divs(file_size_kb), repeat=2))
+            for rw_bs in rw_pairs:
+                input_size = os.path.getsize(input_file)
+                run_dd_write_command(input_file, rw_bs[0], input_size // (rw_bs[0] * 1024))
+                run_dd_read_command(output_file, rw_bs[1], input_size // (rw_bs[1] * 1024))
+                print(f"Completed processing file: {input_file}")
+                test_count += 1
+            
+                compare_files(input_file, output_file, rw_bs, [input_size // rw_bs[0], input_size // rw_bs[1]])
         else:
             count = os.path.getsize(input_file) // (block_size_kb * 1024)
-            run_dd_command(input_file, output_file, block_size_kb, int(count))
-
-
+            run_dd_read_command(input_file, block_size_kb, int(count))
+            run_dd_write_command(output_file, block_size_kb, int(count))
+            
+            compare_files(input_file, output_file, list(block_size_kb), list(count))
+       
 def proceed_run(num_files, file_size_kb, block_size_kb):
-    #prepare_driver()
+    prepare_driver()
     clean_test_dir(TEST_DIR)
 
     if file_size_kb == 0:
-        file_size_kb = random.choice(list(DEF_SUITABLE_FB.keys()))
-        join_files(num_files, file_size_kb, block_size_kb)
+        file_size_kb = random.choice(DEF_SUITABLE_FB)
+        run_test_files(num_files, file_size_kb, block_size_kb)
     elif file_size_kb == -1:
-        for k in list(DEF_SUITABLE_FB.keys()):
-            join_files(num_files, k, block_size_kb)
+        for k in DEF_SUITABLE_FB:
+            run_test_files(num_files, k, block_size_kb)
     else:
-        join_files(num_files, file_size_kb, block_size_kb)
+        run_test_files(num_files, file_size_kb, block_size_kb)
 
     if len(errors) != 0:
         print(errors)
@@ -158,12 +170,12 @@ def proceed_run(num_files, file_size_kb, block_size_kb):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Create test files and run dd commands on a block device.')
-    parser.add_argument('--num_files', type=int, default=5, help='Number of test files to create')
-    parser.add_argument('--file_size_kb', type=int, default=10,
+    parser.add_argument('--num_files', '-n', type=int, default=5, help='Number of test files to create')
+    parser.add_argument('--file_size_kb', '-fs', type=int, default=10,
                         help='Size of each test file in KB. \n '
                              'Set to 0 for a random choice of 1 file size. \n '
                              'Set to -1 for running all file sizes.')
-    parser.add_argument('--block_size_kb', type=int, default=0,
+    parser.add_argument('--block_size_kb', '-bs', type=int, default=0,
                         help='Block size for dd command in KB. \nSet to 0 for automatic selection.')
     parser.add_argument('--clear', '-c', help='Apply to clear test utilities.', action='store_true')
     
