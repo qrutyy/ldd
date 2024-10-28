@@ -29,7 +29,7 @@ lint:
 	./checkpatch.pl -f --no-tree main.c btreeutils.c btreeutils.h
 
 clean:
-	rm -rf *.o *~ core .depend .*.cmd *.ko *.mod.c .tmp_versions *.symvers *.mod *.order
+	rm -rf *.o *~ core .depend .*.cmd *.ko *.mod.c .tmp_versions *.symvers *.mod *.order *.o.d
 
 .PHONY: modules modules_install clean
 
