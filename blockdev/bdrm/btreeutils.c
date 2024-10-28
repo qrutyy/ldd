@@ -119,7 +119,8 @@ retry:
 
 	node = head->node;
 	for (height = head->height ; height > 1; height--) {
-		for (i = 0; i < geo->no_pairs; i++)
+		for (i = geo->no_pairs; i > 0; i--)
+			pr_info("node i: %lu\n", node[i * btree_geo64.keylen]);
 			if (keycmp(geo, node, i, key) >= 0)
 				break;
 		if (i == geo->no_pairs)
@@ -134,12 +135,13 @@ retry:
 	if (!node)
 		goto miss;
 
-	for (i = 0; i < geo->no_pairs; i++) {
+	for (i = geo->no_pairs; i > 0; i--) {
 		if (keycmp(geo, node, i, key) >= 0) {
 			if (bval(geo, node, i)) {
+				longcpy(key, bkey(geo, node, i), geo->keylen);
 				return bval(geo, node, i);
-			} else
-				goto miss;
+			}
+			goto miss;
 		}
 	}
 miss:
@@ -184,17 +186,16 @@ void *btree_get_prev_no_rep(struct btree_head *head, struct btree_geo *geo,
 
 	for (i = 0; i < geo->no_pairs; i++) {
 		if (keycmp(geo, node, i, key) <= 0) {
-			if (bval(geo, node, i)) {
+			if (bval(geo, node, i))
 				return bval(geo, node, i);
-			} else
-				goto miss;
+			goto miss;
 		}
 	}
 miss:
 	if (retry_key) {
 		longcpy(key, retry_key, geo->keylen);
 		retry_key = NULL;
-		pr_err("btree_get_prev_no_rep: key miss\n");
+		pr_err("%s: key miss\n", __btree_get_prev_no_rep__);
 	}
 	return NULL;
 }

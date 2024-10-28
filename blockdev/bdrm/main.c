@@ -39,15 +39,17 @@ typedef struct bdrm_manager {
 	struct list_head list;
 } bdrm_manager;
 
-static int vector_add_bd(struct bdrm_manager *current_bdev_manager) {
+static int vector_add_bd(struct bdrm_manager *current_bdev_manager)
+{
 	list_add(&current_bdev_manager->list, &bd_list);
 
 	return 0;
 }
 
-static int check_bdrm_manager_by_name(char *bd_name) {
+static int check_bdrm_manager_by_name(char *bd_name)
+{
 	struct bdrm_manager *entry;
-   
+
 	list_for_each_entry(entry, &bd_list, list) {
 		if (entry->middle_disk->disk_name == bd_name &&
 			entry->bdev_handler != NULL)
@@ -57,7 +59,8 @@ static int check_bdrm_manager_by_name(char *bd_name) {
 	return -1;
 }
 
-static struct bdrm_manager *get_list_element_by_index(int index) {
+static struct bdrm_manager *get_list_element_by_index(int index)
+{
 	struct bdrm_manager *entry;
 	int i = 0;
 
@@ -70,7 +73,8 @@ static struct bdrm_manager *get_list_element_by_index(int index) {
 	return NULL;
 }
 
-static int convert_to_int(const char *arg) {
+static int convert_to_int(const char *arg)
+{
 	long number;
 	int res = kstrtol(arg, 10, &number);
 
@@ -80,7 +84,8 @@ static int convert_to_int(const char *arg) {
 	return (int)number;
 }
 
-static int check_bio_link(struct bio *bio) {
+static int check_bio_link(struct bio *bio)
+{
 	if (check_bdrm_manager_by_name(bio->bi_bdev->bd_disk->disk_name)) {
 		pr_err(
 			"No such bdrm_manager with middle disk %s and not empty handler\n",
@@ -91,12 +96,14 @@ static int check_bio_link(struct bio *bio) {
 	return 0;
 }
 
-static struct bdev_handle *open_bd_on_rw(char *bd_path) {
+static struct bdev_handle *open_bd_on_rw(char *bd_path)
+{
 	return bdev_open_by_path(bd_path, BLK_OPEN_WRITE | BLK_OPEN_READ, NULL,
 							 NULL);
 }
 
-static void bdrm_bio_end_io(struct bio *bio) {
+static void bdrm_bio_end_io(struct bio *bio)
+{
 	bio_endio(bio->bi_private);
 	bio_put(bio);
 }
@@ -113,9 +120,8 @@ static void bdrm_bio_end_io(struct bio *bio) {
  *
  * It returns 0 on success, -ENOMEM if memory allocation fails.
  */
-static int setup_write_in_clone_segments(struct bio *main_bio,
-										 struct bio *clone_bio,
-										 struct btree_head *bptree_head) {
+static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone_bio, struct btree_head *bptree_head)
+{
 	int status;
 	bdrm_sector *original_sector;
 	bdrm_sector *redirected_sector;
@@ -137,11 +143,10 @@ static int setup_write_in_clone_segments(struct bio *main_bio,
 	if (curr_rs_info == NULL)
 		goto mem_err;
 
-	if (main_bio->bi_iter.bi_sector == 0) {
+	if (main_bio->bi_iter.bi_sector == 0)
 		*original_sector = SECTOR_OFFSET;
-	} else {
+	else
 		*original_sector = SECTOR_OFFSET + main_bio->bi_iter.bi_sector;
-	}
 	*redirected_sector = *original_sector;
 
 	pr_info("Original sector: bi_sector = %llu, block_size = %u\n",
@@ -159,9 +164,7 @@ static int setup_write_in_clone_segments(struct bio *main_bio,
 	if (old_mapped_rs_info &&
 		old_mapped_rs_info->redirected_sector != redirected_sector) {
 		btree_remove(bptree_head, &btree_geo64, original_sector);
-		pr_info("DEBUG: removed old mapping (mapped_redirect_address = %lu "
-				"redirected_sector = %lu)\n",
-				*old_mapped_rs_info->redirected_sector, *redirected_sector);
+		pr_info("DEBUG: removed old mapping (mapped_redirect_address = %lu redirected_sector = %lu)\n", *old_mapped_rs_info->redirected_sector, *redirected_sector);
 	}
 
 	status = btree_insert(bptree_head, &btree_geo64, original_sector,
@@ -194,13 +197,14 @@ mem_err:
  *
  * It returns nearest_bs on successful split, -1 if memory allocation fails.
  */
-static int setup_bio_split(struct bio *clone_bio, struct bio *main_bio, int nearest_bs) {
+static int setup_bio_split(struct bio *clone_bio, struct bio *main_bio, int nearest_bs)
+{
 	struct bio *split_bio; // first half of splitted bio
 
 	split_bio = bio_split(clone_bio, nearest_bs / SECTOR_SIZE, GFP_KERNEL, bdrm_pool);
 	if (!split_bio)
 		return -1;
-			
+
 	pr_info("RECURSIVE READ p1: bs = %u, main to read = %u, st sec = %llu\n",
 		split_bio->bi_iter.bi_size, main_bio->bi_iter.bi_size, split_bio->bi_iter.bi_sector);
 	pr_info("RECURSIVE READ p2: bs = %u, main to read = %u,  st sec = %llu\n",
@@ -208,7 +212,7 @@ static int setup_bio_split(struct bio *clone_bio, struct bio *main_bio, int near
 
 	submit_bio(split_bio);
 	pr_info("Submitted bio\n\n");
-	
+
 	return nearest_bs;
 }
 
@@ -227,20 +231,18 @@ static int setup_bio_split(struct bio *clone_bio, struct bio *main_bio, int near
  *
  * It returns 0 on success, -ENOMEM if memory allocation fails, or -1 on split error.
  */
-static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clone_bio,
-							   struct btree_head *bptree_head,
-							   struct bdrm_manager *redirect_manager) {
-
-	redir_sector_info *curr_rs_info; 	
+static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clone_bio, struct btree_head *bptree_head, struct bdrm_manager *redirect_manager)
+{
+	redir_sector_info *curr_rs_info;
 	redir_sector_info *prev_rs_info;
 	redir_sector_info *last_rs = NULL;
 	bdrm_sector orig_sector_val = 0;
 	bdrm_sector *original_sector = &orig_sector_val;
 	bdrm_sector *redirected_sector;
-	int32_t to_read_in_clone; 
+	int32_t to_read_in_clone;
 	int16_t status;
-	
-	if (main_bio->bi_iter.bi_size == 0) 
+
+	if (main_bio->bi_iter.bi_size == 0)
 		return 0;
 
 	curr_rs_info = kmalloc(sizeof(struct redir_sector_info), GFP_KERNEL);
@@ -263,29 +265,29 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 
 		if (bptree_head->height == 0) { // BTREE is empty and we're getting system BIO's
 			redirected_sector = kmalloc(sizeof(unsigned long), GFP_KERNEL);
-			if (redirected_sector == NULL) {
+			if (redirected_sector == NULL)
 				goto mem_err;
-			}
 			*redirected_sector = *original_sector;
 			return 0;
 		}
-		
+
 		last_rs = btree_last_no_rep(bptree_head, &btree_geo64, original_sector);
- 		pr_info("last_rs = %lu\n", *last_rs->redirected_sector);
+		pr_info("last_rs = %lu\n", *last_rs->redirected_sector);
 
 		if (*original_sector > *last_rs->redirected_sector) {
-			/*  We got a system check in the middle of respond to
-			bio)... It means that we are processing bio, whose orig_sector
-			isn't mapped and is bigger then every mapped sector.  */
+			/**  We got a system check in the middle of respond to
+			 * bio)... It means that we are processing bio, whose orig_sector
+			 * isn't mapped and is bigger then every mapped sector.
+			 */
 			clone_bio->bi_iter.bi_sector = *original_sector;
 			pr_info("Recognised system bio\n");
 			return 0;
 		}
-		
+
 		prev_rs_info = btree_get_prev_no_rep(bptree_head, &btree_geo64, original_sector);
 		clone_bio->bi_iter.bi_sector = *original_sector;
 		to_read_in_clone = (*original_sector * 512 + main_bio->bi_iter.bi_size) - (*prev_rs_info->redirected_sector * 512 + prev_rs_info->block_size);
- 		/* Address of main block end (reading fr:om original sector -> bi_size) -  First address of written blocks after original_sector */
+		/* Address of main block end (reading fr:om original sector -> bi_size) -  First address of written blocks after original_sector */
 
 		pr_info("To read = %d, main size = %u, prev_rs bs = %u, prev_rs sector = %lu\n", to_read_in_clone, main_bio->bi_iter.bi_size, prev_rs_info->block_size, *prev_rs_info->redirected_sector);
 		pr_info("Clone bio: sector = %llu, size = %u, sec num = %u\n", clone_bio->bi_iter.bi_sector, clone_bio->bi_iter.bi_size, clone_bio->bi_iter.bi_size / SECTOR_SIZE);
@@ -294,25 +296,25 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 			status = setup_bio_split(clone_bio, main_bio, clone_bio->bi_iter.bi_size - to_read_in_clone);
 			if (status < 0)
 				goto split_err;
-			
-			pr_info("2 To read = %lu, bs = %lu, clone bs = %lu \n", to_read_in_clone, prev_rs_info->block_size, clone_bio->bi_iter.bi_size);
+
+			pr_info("2 To read = %lu, bs = %lu, clone bs = %lu\n", to_read_in_clone, prev_rs_info->block_size, clone_bio->bi_iter.bi_size);
 		} else if (clone_bio->bi_iter.bi_size > prev_rs_info->block_size + clone_bio->bi_iter.bi_size - to_read_in_clone) {
-			while (to_read_in_clone > 0) {			
+			while (to_read_in_clone > 0) {
 				status = setup_bio_split(clone_bio, main_bio, prev_rs_info->block_size);
 				if (status < 0)
 					goto split_err;
 
-				to_read_in_clone -=	status;	
+				to_read_in_clone -= status;
 				// prev_rs_info = btree_get_next(bptree_head, &btree_geo64, original_sector);
 
-				pr_info("1 To read = %lu, bs = %lu, clone bs = %lu \n", to_read_in_clone, prev_rs_info->block_size, clone_bio->bi_iter.bi_size);
+				pr_info("1 To read = %lu, bs = %lu, clone bs = %lu\n", to_read_in_clone, prev_rs_info->block_size, clone_bio->bi_iter.bi_size);
 			}
 			clone_bio->bi_iter.bi_size = prev_rs_info->block_size;
-		}	
+		}
 	} else if (curr_rs_info->redirected_sector) { // Read & Write start sectors are equal.
-		pr_info("Found redirected sector: %lu, rs_bs = %u, main_bs = %u \n",
+		pr_info("Found redirected sector: %lu, rs_bs = %u, main_bs = %u\n",
 			*curr_rs_info->redirected_sector, curr_rs_info->block_size, main_bio->bi_iter.bi_size);
-		
+
 		to_read_in_clone = main_bio->bi_iter.bi_size - curr_rs_info->block_size; // size of block to read ahead
 		clone_bio->bi_iter.bi_sector = *curr_rs_info->redirected_sector;
 
@@ -320,8 +322,9 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 			to_read_in_clone -= setup_bio_split(clone_bio, main_bio, curr_rs_info->block_size);
 			if (status < 0)
 				goto split_err;
-			/* curr_rs_info = btree_get_next(bptree_head, &btree_geo64, original_sector);
-			pr_info("next rs %lu\n", *curr_rs_info->redirected_sector); */
+			/** curr_rs_info = btree_get_next(bptree_head, &btree_geo64, original_sector);
+			 * pr_info("next rs %lu\n", *curr_rs_info->redirected_sector);
+			 */
 		}
 		clone_bio->bi_iter.bi_size = (to_read_in_clone < 0) ? curr_rs_info->block_size + to_read_in_clone : curr_rs_info->block_size;
 		pr_info("End of read, Clone: size: %u, sector %lu, to_read = %d\n", clone_bio->bi_iter.bi_size, clone_bio->bi_iter.bi_sector, to_read_in_clone);
@@ -344,10 +347,11 @@ mem_err:
  * bdr_submit_bio() - Takes the provided bio, allocates a clone (child)
  * for a redirect_bd. Although, it changes the way both bio's will end (+ maps
  * bio address with free one from aim BD in b+tree) and submits them.
- * 
+ *
  * @bio - Expected bio request
  */
-static void bdr_submit_bio(struct bio *bio) {
+static void bdr_submit_bio(struct bio *bio)
+{
 	struct bio *clone;
 	struct bdrm_manager *current_redirect_manager;
 	struct btree_head *current_bptree_head;
@@ -406,7 +410,8 @@ static const struct block_device_operations bdr_bio_ops = {
  * DOESN'T SET UP the disks capacity, check bdr_submit_bio()
  * AND DOESN'T ADD disk if there was one already TO FIX
  */
-static struct gendisk *init_disk_bd(char *bd_name) {
+static struct gendisk *init_disk_bd(char *bd_name)
+{
 	struct gendisk *new_disk = NULL;
 	struct bdrm_manager *linked_manager = NULL;
 
@@ -447,7 +452,8 @@ free_bd_meta:
  * check_and_open_bd() - Checks if name is occupied, if so - opens the BD, if
  * not - return -EINVAL. Additionally adds the BD to the vector.
  */
-static int check_and_open_bd(char *bd_path) {
+static int check_and_open_bd(char *bd_path)
+{
 	int error;
 	struct bdrm_manager *current_bdev_manager =
 		kmalloc(sizeof(struct bdrm_manager), GFP_KERNEL);
@@ -478,7 +484,8 @@ free_bdev:
 	return PTR_ERR(current_bdev_handle);
 }
 
-static char *create_disk_name_by_index(int index) {
+static char *create_disk_name_by_index(int index)
+{
 	char *disk_name =
 		kmalloc(strlen(MAIN_BLKDEV_NAME) + snprintf(NULL, 0, "%d", index) + 1,
 				GFP_KERNEL);
@@ -497,7 +504,8 @@ static char *create_disk_name_by_index(int index) {
  * @name_index - an index for disk name (make sense only in name displaying,
  * DOESN'T SYNC WITH VECTOR INDICES)
  */
-static int create_bd(int name_index) {
+static int create_bd(int name_index)
+{
 	char *disk_name = NULL;
 	int status;
 	struct gendisk *new_disk = NULL;
@@ -545,7 +553,8 @@ disk_init_err:
 	return -ENOMEM;
 }
 
-static int delete_bd(int index) {
+static int delete_bd(int index)
+{
 	if (get_list_element_by_index(index)->bdev_handler) {
 		bdev_release(get_list_element_by_index(index)->bdev_handler);
 		get_list_element_by_index(index)->bdev_handler = NULL;
@@ -575,7 +584,8 @@ static int delete_bd(int index) {
  *
  * Vector stores only BD's that we've touched from this module.
  */
-static int bdr_get_bd_names(char *buf, const struct kernel_param *kp) {
+static int bdr_get_bd_names(char *buf, const struct kernel_param *kp)
+{
 	struct bdrm_manager *current_manager;
 	int total_length = 0;
 	int offset = 0;
@@ -603,9 +613,8 @@ static int bdr_get_bd_names(char *buf, const struct kernel_param *kp) {
 			offset += length;
 			total_length += length;
 		}
-		if (list_empty(&bd_list)) {
+		if (list_empty(&bd_list))
 			pr_warn("Vector should be empty, but is not\n");
-		}
 	}
 
 	return total_length;
@@ -615,7 +624,8 @@ static int bdr_get_bd_names(char *buf, const struct kernel_param *kp) {
  * bdr_delete_bd() - Deletes bdev according to index from printed list (check
  * bdr_get_bd_names)
  */
-static int bdr_delete_bd(const char *arg, const struct kernel_param *kp) {
+static int bdr_delete_bd(const char *arg, const struct kernel_param *kp)
+{
 	int index = convert_to_int(arg) - 1;
 
 	delete_bd(index);
@@ -628,7 +638,8 @@ static int bdr_delete_bd(const char *arg, const struct kernel_param *kp) {
  * opens and links)
  * @arg - "from_disk_postfix path"
  */
-static int bdr_set_redirect_bd(const char *arg, const struct kernel_param *kp) {
+static int bdr_set_redirect_bd(const char *arg, const struct kernel_param *kp)
+{
 	int status;
 	int index;
 	char path[MAX_BD_NAME_LENGTH];
@@ -664,7 +675,8 @@ static int bdr_set_redirect_bd(const char *arg, const struct kernel_param *kp) {
 	return 0;
 }
 
-static int __init bdr_init(void) {
+static int __init bdr_init(void)
+{
 	int status;
 
 	pr_info("BDR module init\n");
@@ -696,14 +708,14 @@ mem_err:
 	return -ENOMEM;
 }
 
-static void __exit bdr_exit(void) {
+static void __exit bdr_exit(void)
+{
 	int i = 0;
 	struct bdrm_manager *entry, *tmp;
 
 	if (!list_empty(&bd_list)) {
-		while (get_list_element_by_index(i) != NULL) {
+		while (get_list_element_by_index(i) != NULL)
 			delete_bd(i + 1);
-		}
 	}
 
 	list_for_each_entry_safe(entry, tmp, &bd_list, list) {
