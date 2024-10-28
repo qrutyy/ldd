@@ -25,6 +25,9 @@ ins:
 set:
 	echo -n "1 /dev/vdb" > /sys/module/$(name)/parameters/set_redirect_bd
 
+lint:
+	./checkpatch.pl -f --no-tree main.c btreeutils.c btreeutils.h
+
 clean:
 	rm -rf *.o *~ core .depend .*.cmd *.ko *.mod.c .tmp_versions *.symvers *.mod *.order
 
