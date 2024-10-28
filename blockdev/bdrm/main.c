@@ -297,7 +297,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 			if (status < 0)
 				goto split_err;
 
-			pr_info("2 To read = %lu, bs = %lu, clone bs = %lu\n", to_read_in_clone, prev_rs_info->block_size, clone_bio->bi_iter.bi_size);
+			pr_info("2 To read = %d, bs = %u, clone bs = %u\n", to_read_in_clone, prev_rs_info->block_size, clone_bio->bi_iter.bi_size);
 		} else if (clone_bio->bi_iter.bi_size > prev_rs_info->block_size + clone_bio->bi_iter.bi_size - to_read_in_clone) {
 			while (to_read_in_clone > 0) {
 				status = setup_bio_split(clone_bio, main_bio, prev_rs_info->block_size);
@@ -307,7 +307,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 				to_read_in_clone -= status;
 				// prev_rs_info = btree_get_next(bptree_head, &btree_geo64, original_sector);
 
-				pr_info("1 To read = %lu, bs = %lu, clone bs = %lu\n", to_read_in_clone, prev_rs_info->block_size, clone_bio->bi_iter.bi_size);
+				pr_info("1 To read = %d, bs = %u, clone bs = %u\n", to_read_in_clone, prev_rs_info->block_size, clone_bio->bi_iter.bi_size);
 			}
 			clone_bio->bi_iter.bi_size = prev_rs_info->block_size;
 		}
@@ -327,7 +327,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 			 */
 		}
 		clone_bio->bi_iter.bi_size = (to_read_in_clone < 0) ? curr_rs_info->block_size + to_read_in_clone : curr_rs_info->block_size;
-		pr_info("End of read, Clone: size: %u, sector %lu, to_read = %d\n", clone_bio->bi_iter.bi_size, clone_bio->bi_iter.bi_sector, to_read_in_clone);
+		pr_info("End of read, Clone: size: %u, sector %llu, to_read = %d\n", clone_bio->bi_iter.bi_size, clone_bio->bi_iter.bi_sector, to_read_in_clone);
 	}
 	return 0;
 
@@ -408,7 +408,7 @@ static const struct block_device_operations bdr_bio_ops = {
  * @bd_name: name of creating BD
  *
  * DOESN'T SET UP the disks capacity, check bdr_submit_bio()
- * AND DOESN'T ADD disk if there was one already TO FIX
+ * AND DOESN'T ADD disk if there was one already TO FIX?
  */
 static struct gendisk *init_disk_bd(char *bd_name)
 {

@@ -119,10 +119,11 @@ retry:
 
 	node = head->node;
 	for (height = head->height ; height > 1; height--) {
-		for (i = geo->no_pairs; i > 0; i--)
+		for (i = geo->no_pairs; i > 0; i--) {
 			pr_info("node i: %lu\n", node[i * btree_geo64.keylen]);
 			if (keycmp(geo, node, i, key) >= 0)
 				break;
+		}
 		if (i == geo->no_pairs)
 			goto miss;
 		oldnode = node;
@@ -195,7 +196,7 @@ miss:
 	if (retry_key) {
 		longcpy(key, retry_key, geo->keylen);
 		retry_key = NULL;
-		pr_err("%s: key miss\n", __btree_get_prev_no_rep__);
+		pr_err("get_prev: key miss\n");
 	}
 	return NULL;
 }
