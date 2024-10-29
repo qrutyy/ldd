@@ -5,7 +5,8 @@
 #include <linux/btree.h>
 #include <linux/list.h>
 #include <linux/moduleparam.h>
-#include "btreeutils.h"
+#include "include/btreeutils.h"
+#include "include/skiplist.h"
 
 MODULE_DESCRIPTION("Block Device Redirect Module");
 MODULE_AUTHOR("Mike Gavrilenko - @qrutyy");
@@ -13,6 +14,7 @@ MODULE_LICENSE("Dual MIT/GPL");
 
 #define MAX_BD_NAME_LENGTH 15
 #define MAX_MINORS_AM 20
+#define MAX_DS_NAME 2
 #define MAIN_BLKDEV_NAME "bdr"
 #define POOL_SIZE 50
 #define SECTOR_OFFSET 32
@@ -22,22 +24,50 @@ typedef unsigned long bdrm_sector;
 
 static int bdrm_current_redirect_pair_index;
 static int bdrm_major;
-// static bdrm_sector free_write_sector = 8;
+static char sel_ds[MAX_DS_NAME];
+static void* current_data_struct;
 struct bio_set *bdrm_pool;
 struct list_head bd_list;
+static const char *available_ds[] = { "bt", "sl", };
 
-typedef struct redir_sector_info {
+struct btree {
+	struct btree_head *head;
+};
+
+struct redir_sector_info {
 	bdrm_sector *redirected_sector;
 	unsigned int block_size;
-} redir_sector_info;
+};
 
-typedef struct bdrm_manager {
+enum data_type {
+	BTREE_TYPE,
+    SKIPLIST_TYPE
+};
+
+struct data_struct {
+	enum data_type type;
+	union {
+        struct btree *map_tree;
+        struct skiplist *map_list;
+    } structure;
+};
+
+struct bdrm_manager {
 	char *bd_name;
 	struct gendisk *middle_disk;
 	struct bdev_handle *bdev_handler;
-	struct btree_head *map_tree;
+	struct data_struct *sel_data_struct;
 	struct list_head list;
-} bdrm_manager;
+};
+
+static void* get_curr_ds_head(struct bdrm_manager *current_bdev_manager)
+{
+	if (current_bdev_manager->sel_data_struct->type == BTREE_TYPE) 
+		return current_bdev_manager->sel_data_struct->structure.map_tree->head;
+	if (current_bdev_manager->sel_data_struct->type == SKIPLIST_TYPE)
+		return current_bdev_manager->sel_data_struct->structure.map_list->head;
+	return NULL;
+}
 
 static int vector_add_bd(struct bdrm_manager *current_bdev_manager)
 {
@@ -108,6 +138,42 @@ static void bdrm_bio_end_io(struct bio *bio)
 	bio_put(bio);
 }
 
+static int ds_lookup(struct data_struct curr_ds, bdrm_sector key)
+{
+	if (curr_ds.type == BTREE_TYPE) {
+		return btree_lookup(curr_ds.structure.map_tree->head, &btree_geo64, key);
+	}
+	if (curr_ds.type == SKIPLIST_TYPE) {
+		return skiplist_find_node(key, curr_ds.structure.map_list)->data;
+	}
+	return 0;
+}
+
+static int ds_remove(struct data_struct curr_ds, bdrm_sector key)
+{
+	int status;
+	if (curr_ds.type == BTREE_TYPE) {
+		status = btree_remove(curr_ds.structure.map_tree->head, &btree_geo64, key);
+	}
+	if (curr_ds.type == SKIPLIST_TYPE) {
+		status = skiplist_remove(key, curr_ds.structure.map_list);
+	}
+	if (!status)
+		pr_info("ERROR: Failed to remove %d from _\n", sector); // TODO: add ds name
+	return status;
+}
+
+static int ds_insert(struct data_struct curr_ds, bdrm_sector key, struct *redir_sector_info value)
+{
+	if (curr_ds.type == BTREE_TYPE) {
+		return btree_insert(curr_ds.structure.map_tree->head, &btree_geo64, key, value, GFP_KERNEL);
+	}
+	if (curr_ds.type == SKIPLIST_TYPE) {
+		return skiplist_add(key, value, curr_ds.structure.map_list)->data;
+	}
+	return 0;
+}
+
 /**
  * Configures write operations in clone segments for the specified BIO.
  * Allocates memory for original and redirected sector data, retrieves the current
@@ -120,26 +186,17 @@ static void bdrm_bio_end_io(struct bio *bio)
  *
  * It returns 0 on success, -ENOMEM if memory allocation fails.
  */
-static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone_bio, struct btree_head *bptree_head)
+static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone_bio, struct redirect_manager current_redirect_manager)
 {
 	int status;
-	bdrm_sector *original_sector;
-	bdrm_sector *redirected_sector;
-	redir_sector_info *old_mapped_rs_info; // Old redirected_sector from B+Tree
-	redir_sector_info *curr_rs_info;
+	bdrm_sector original_sector_val = 0;
+	bdrm_sector *original_sector = original_sector_val;
+	bdrm_sector redirected_sector_val = 0;
+	bdrm_sector *redirected_sector = &redirected_sector;
+	struct redir_sector_info *old_mapped_rs_info; // Old redirected_sector from B+Tree
+	struct redir_sector_info *curr_rs_info;
 
-	original_sector = kmalloc(sizeof(unsigned long), GFP_KERNEL);
-
-	if (original_sector == NULL)
-		goto mem_err;
-
-	redirected_sector = kmalloc(sizeof(unsigned long), GFP_KERNEL);
-
-	if (redirected_sector == NULL)
-		goto mem_err;
-
-	curr_rs_info = kmalloc(sizeof(redir_sector_info), GFP_KERNEL);
-
+	curr_rs_info = kmalloc(sizeof(struct redir_sector_info), GFP_KERNEL);
 	if (curr_rs_info == NULL)
 		goto mem_err;
 
@@ -149,33 +206,39 @@ static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone
 		*original_sector = SECTOR_OFFSET + main_bio->bi_iter.bi_sector;
 	*redirected_sector = *original_sector;
 
-	pr_info("Original sector: bi_sector = %llu, block_size = %u\n",
+	pr_info("Original sector: bi_sector = %llu, block_size %u\n",
 			main_bio->bi_iter.bi_sector, clone_bio->bi_iter.bi_size);
 
 	curr_rs_info->block_size = main_bio->bi_iter.bi_size;
 	curr_rs_info->redirected_sector = redirected_sector;
 
-	old_mapped_rs_info =
-		btree_lookup(bptree_head, &btree_geo64, original_sector);
+	old_mapped_rs_info = ds_lookup(current_redirect_manager->sel_data_struct, original_sector);
+	if (!old_mapped_rs_info)
+		goto lookup_err;
 
 	pr_info("WRITE: head : %lu, key: %lu, val: %p\n",
 			(unsigned long)bptree_head, *original_sector, redirected_sector);
 
 	if (old_mapped_rs_info &&
 		old_mapped_rs_info->redirected_sector != redirected_sector) {
-		btree_remove(bptree_head, &btree_geo64, original_sector);
+		ds_remove(current_redirect_manager->sel_data_struct, original_sector);
 		pr_info("DEBUG: removed old mapping (mapped_redirect_address = %lu redirected_sector = %lu)\n", *old_mapped_rs_info->redirected_sector, *redirected_sector);
 	}
 
-	status = btree_insert(bptree_head, &btree_geo64, original_sector,
-						  curr_rs_info, GFP_KERNEL);
-
+	status = ds_insert(current_redirect_manager->sel_data_struct, sector, curr_rs_info);	
 	if (status)
-		return PTR_ERR(&status);
+		goto insert_err;
 
 	clone_bio->bi_iter.bi_sector = *redirected_sector;
 
 	return 0;
+
+lookup_err:
+	pr_err("Lookup in data structure _ failed\n"); // TODO: add ds name
+	
+insert_err:
+	pr_err("Failed inserting key: %d value: %p in _\n", sector, curr_rs_info);
+	return status;
 
 mem_err:
 	pr_err("Memory allocation failed\n");
@@ -233,9 +296,9 @@ static int setup_bio_split(struct bio *clone_bio, struct bio *main_bio, int near
  */
 static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clone_bio, struct btree_head *bptree_head, struct bdrm_manager *redirect_manager)
 {
-	redir_sector_info *curr_rs_info;
-	redir_sector_info *prev_rs_info;
-	redir_sector_info *last_rs = NULL;
+	struct redir_sector_info *curr_rs_info;
+	struct redir_sector_info *prev_rs_info;
+	struct redir_sector_info *last_rs = NULL;
 	bdrm_sector orig_sector_val = 0;
 	bdrm_sector *original_sector = &orig_sector_val;
 	bdrm_sector *redirected_sector;
@@ -354,48 +417,58 @@ static void bdr_submit_bio(struct bio *bio)
 {
 	struct bio *clone;
 	struct bdrm_manager *current_redirect_manager;
-	struct btree_head *current_bptree_head;
+	void* current_ds_head;
 	int16_t status;
 
 	status = check_bio_link(bio);
-
-	if (status) {
-		bdrm_bio_end_io(bio);
-		return;
-	}
+	if (status) 
+		goto link_err;
 
 	current_redirect_manager = get_list_element_by_index(bdrm_current_redirect_pair_index);
-	current_bptree_head = current_redirect_manager->map_tree;
 
 	clone = bio_alloc_clone(current_redirect_manager->bdev_handler->bdev, bio,
 							GFP_KERNEL, bdrm_pool);
 
-	if (!clone) {
-		pr_err("Bio allocation failed\n");
-		bio_io_error(bio);
-		return;
-	}
+	if (!clone)
+		goto clone_err;
 
 	clone->bi_private = bio;
 	clone->bi_end_io = bdrm_bio_end_io;
 
-	if (bio_op(bio) == REQ_OP_READ) {
-		status = setup_read_from_clone_segments(bio, clone, current_bptree_head,
-												current_redirect_manager);
+if (bio_op(bio) == REQ_OP_READ) {
+		status = setup_read_from_clone_segments(bio, clone, current_redirect_manager);
 	} else if (bio_op(bio) == REQ_OP_WRITE) {
-		status = setup_write_in_clone_segments(bio, clone, current_bptree_head);
+		status = setup_write_in_clone_segments(bio, clone, current_redirect_manager);
 	} else {
 		pr_warn("Unknown Operation in bio\n");
 	}
 
-	if (IS_ERR((void *)(intptr_t)status)) {
-		pr_err("Segment setup went wrong\n");
-		bio_io_error(bio);
-		return;
-	}
+	if (status)
+		goto setup_err;
+
 
 	submit_bio(clone);
 	pr_info("Submitted bio\n\n");
+
+link_err:
+	pr_err("Failed to check link\n");
+	bdrm_bio_end_io(bio);
+	return;
+
+ds_err:
+	pr_err("Failed to get data structure's head\n");
+	bdrm_bio_end_io(bio);
+	return;
+
+clone_err:
+	pr_err("Bio allocation failed\n");
+	bio_io_error(bio);
+	return;
+
+setup_err:
+	pr_err("Setup failed with code %d\n", status);
+	bio_io_error(bio);
+	return;
 }
 
 static const struct block_device_operations bdr_bio_ops = {
@@ -633,6 +706,54 @@ static int bdr_delete_bd(const char *arg, const struct kernel_param *kp)
 	return 0;
 }
 
+static int check_available_ds(char* current_ds)
+{
+	int len = sizeof(available_ds)/sizeof(available_ds[0])
+	for(i = 0; i < len; ++i)
+	{
+		if(!strcmp(x[i], s))
+			return 0;
+	}
+	return -1;
+}
+
+static int bdr_get_data_structs(char *buf, const struct kernel_param *kp)
+{
+	int i, offset, length, total_length;
+
+	for (i = 0; i < sizeof(available_ds) / sizeof(available_ds[0]); i++) { 
+		length = sprintf(buf + offset, "%d. %s\n", i, available_ds[i]);
+
+		if (length < 0) {
+			pr_err("Error in formatting string\n");
+			return -EFAULT;
+		}
+
+		offset += length;
+		total_length += length;
+	}
+    return total_length;
+}
+
+/**
+ * Function sets data structure that will be used for mapping of sectors
+ * @arg - "type"
+ */
+static int bdr_set_data_struct(const char *arg, const struct kernel_param *kp)
+{
+	int status;
+	if (sscanf(arg, "%s", sel_ds) != 1) {
+		pr_err("Wrong input, 1 value required\n");
+		return -EINVAL;
+	}
+
+	if (check_available_ds(sel_ds)) {
+		pr_err("%s is not supported. Check available data structure by get_data_structs\n");
+		return -1;
+	}
+	return 0;
+}
+
 /**
  * Function links 'middle' BD and the aim one, for vector purposes. (creates,
  * opens and links)
@@ -648,11 +769,6 @@ static int bdr_set_redirect_bd(const char *arg, const struct kernel_param *kp)
 	if (sscanf(arg, "%d %s", &index, path) != 2) {
 		pr_err("Wrong input, 2 values are required\n");
 		return -EINVAL;
-	}
-
-	if (status) {
-		pr_info("%d\n", status);
-		return PTR_ERR(&status);
 	}
 
 	status = check_and_open_bd(path);
@@ -745,6 +861,11 @@ static const struct kernel_param_ops bdr_redirect_ops = {
 	.get = NULL,
 };
 
+static const struct kernel_param_ops bdr_set_ds_ops = {
+	.set = bdr_set_data_struct,
+	.get = bdr_get_data_structs,
+}
+
 MODULE_PARM_DESC(delete_bd, "Delete BD");
 module_param_cb(delete_bd, &bdr_delete_ops, NULL, 0200);
 
@@ -753,6 +874,9 @@ module_param_cb(get_bd_names, &bdr_get_bd_ops, NULL, 0644);
 
 MODULE_PARM_DESC(set_redirect_bd, "Link local disk with redirect aim bd");
 module_param_cb(set_redirect_bd, &bdr_redirect_ops, NULL, 0200);
+
+MODULE_PARM_DESC(set_data_structure, "Set data structure to be used in mapping");
+module_param_cb(set_data_structure, &bdr_set_ds_ops, NULL, 0666);
 
 module_init(bdr_init);
 module_exit(bdr_exit);
