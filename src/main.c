@@ -319,7 +319,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 		goto mem_err;
 
 	*original_sector = SECTOR_OFFSET + main_bio->bi_iter.bi_sector;
-	curr_rs_info = btree_lookup(bptree_head, &btree_geo64, original_sector);
+	curr_rs_info = ds_lookup(redirect_manager->sel_data_struct, original_sector);
 
 	pr_info("READ: head: %lu, key: %lu\n", (unsigned long)bptree_head, *original_sector);
 
@@ -334,7 +334,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 			return 0;
 		}
 
-		last_rs = btree_last_no_rep(bptree_head, &btree_geo64, original_sector);
+		last_rs = btree_last_no_rep(bptree_head, &btree_geo64, original_sector); // TODO
 		pr_info("last_rs = %lu\n", *last_rs->redirected_sector);
 
 		if (*original_sector > *last_rs->redirected_sector) {
@@ -347,7 +347,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 			return 0;
 		}
 
-		prev_rs_info = btree_get_prev_no_rep(bptree_head, &btree_geo64, original_sector);
+		prev_rs_info = btree_get_prev_no_rep(bptree_head, &btree_geo64, original_sector); // TODO
 		clone_bio->bi_iter.bi_sector = *original_sector;
 		to_read_in_clone = (*original_sector * 512 + main_bio->bi_iter.bi_size) - (*prev_rs_info->redirected_sector * 512 + prev_rs_info->block_size);
 		/* Address of main block end (reading fr:om original sector -> bi_size) -  First address of written blocks after original_sector */
@@ -754,6 +754,37 @@ static int bdr_set_data_struct(const char *arg, const struct kernel_param *kp)
 	return 0;
 }
 
+static int ds_init(struct data_struct curr_ds)
+{
+	if (strcmp(sel_ds, "bt")) {
+		struct btree *ds = kmalloc(sizeof(struct btree), GFP_KERNEL);
+		if (!ds)
+			goto mem_err;
+
+		struct btree_head *root = kmalloc(sizeof(struct btree_head), GFP_KERNEL);
+		if (!root)
+			goto mem_err;
+		
+		btree_init(root);
+		curr_ds.type = BTREE_TYPE;
+		curr_ds.structure = ds;
+		curr_ds.structure->head = root;
+	}
+	if (strcmp(sel_ds, "sl")) {
+		struct skiplist *ds = skiplist_init();
+		curr_ds.type = SKIPLIST_TYPE;
+		curr_ds.structure = ds;
+	}
+
+	return 0;
+	
+mem_err:
+	pr_err("Memory allocation faile\n");
+	kfree(ds);
+	kfree(root);
+	return -ENOMEM;
+}
+
 /**
  * Function links 'middle' BD and the aim one, for vector purposes. (creates,
  * opens and links)
@@ -764,7 +795,7 @@ static int bdr_set_redirect_bd(const char *arg, const struct kernel_param *kp)
 	int status;
 	int index;
 	char path[MAX_BD_NAME_LENGTH];
-	struct btree_head *root = kmalloc(sizeof(struct btree_head), GFP_KERNEL);
+	struct redirect_manager current_redirect_manager;
 
 	if (sscanf(arg, "%d %s", &index, path) != 2) {
 		pr_err("Wrong input, 2 values are required\n");
@@ -776,12 +807,11 @@ static int bdr_set_redirect_bd(const char *arg, const struct kernel_param *kp)
 	if (status)
 		return PTR_ERR(&status);
 
-	status = btree_init(root);
+	list_last_entry(&bd_list, struct bdrm_manager, list);
+	status = ds_init(list_last_entry(&bd_list, struct bdrm_manager, list)->sel_data_struct);
 
 	if (status)
 		return PTR_ERR(&status);
-
-	list_last_entry(&bd_list, struct bdrm_manager, list)->map_tree = root;
 
 	status = create_bd(index);
 
