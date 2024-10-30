@@ -13,28 +13,20 @@ MODULE_LICENSE("Dual MIT/GPL");
 
 #define MAX_BD_NAME_LENGTH 15
 #define MAX_MINORS_AM 20
-#define MAX_DS_NAME 2
+#define MAX_DS_NAME_LEN 2
 #define MAIN_BLKDEV_NAME "bdr"
 #define POOL_SIZE 50
 #define SECTOR_OFFSET 32
 
-/* Redefine sector as 32b ulong, bc provided kernel btree stores ulong keys */
-typedef unsigned long bdrm_sector;
-
 static int bdrm_current_redirect_pair_index;
 static int bdrm_major;
-static char sel_ds[MAX_DS_NAME];
-static void* current_data_struct;
+char sel_ds[MAX_DS_NAME_LEN + 1];
 struct bio_set *bdrm_pool;
 struct list_head bd_list;
-static const char *available_ds[] = { "bt", "sl", };
-
-struct btree {
-	struct btree_head *head;
-};
+static const char *available_ds[] = { "bt", "sl"};
 
 struct redir_sector_info {
-	bdrm_sector *redirected_sector;
+	sector_t *redirected_sector;
 	unsigned int block_size;
 };
 
@@ -130,10 +122,10 @@ static void bdrm_bio_end_io(struct bio *bio)
 static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone_bio, struct bdrm_manager *current_redirect_manager)
 {
 	int status;
-	bdrm_sector original_sector_val = 0;
-	bdrm_sector *original_sector = &original_sector_val;
-	bdrm_sector redirected_sector_val = 0;
-	bdrm_sector *redirected_sector = &redirected_sector_val;
+	sector_t original_sector_val = 0;
+	sector_t *original_sector = &original_sector_val;
+	sector_t redirected_sector_val = 0;
+	sector_t *redirected_sector = &redirected_sector_val;
 	struct redir_sector_info *old_mapped_rs_info; // Old redirected_sector from B+Tree
 	struct redir_sector_info *curr_rs_info;
 
@@ -157,12 +149,12 @@ static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone
 	if (!old_mapped_rs_info)
 		goto lookup_err;
 
-	pr_info("WRITE: key: %lu, val: %p\n", *original_sector, redirected_sector);
+	pr_info("WRITE: key: %llu, val: %p\n", *original_sector, redirected_sector);
 
 	if (old_mapped_rs_info &&
 		old_mapped_rs_info->redirected_sector != redirected_sector) {
 		ds_remove(current_redirect_manager->sel_data_struct, original_sector);
-		pr_info("DEBUG: removed old mapping (mapped_redirect_address = %lu redirected_sector = %lu)\n", *old_mapped_rs_info->redirected_sector, *redirected_sector);
+		pr_info("removed old mapping (mapped_redirect_address = %llu redirected_sector = %llu)\n", *old_mapped_rs_info->redirected_sector, *redirected_sector);
 	}
 
 	status = ds_insert(current_redirect_manager->sel_data_struct, original_sector, curr_rs_info);	
@@ -177,7 +169,7 @@ lookup_err:
 	pr_err("Lookup in data structure _ failed\n"); // TODO: add ds name
 	
 insert_err:
-	pr_err("Failed inserting key: %d value: %p in _\n", sector, curr_rs_info);
+	pr_err("Failed inserting key: %llu vallue: %p in _\n", *original_sector, curr_rs_info);
 	return status;
 
 mem_err:
@@ -238,9 +230,9 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 	struct redir_sector_info *curr_rs_info;
 	struct redir_sector_info *prev_rs_info;
 	struct redir_sector_info *last_rs = NULL;
-	bdrm_sector orig_sector_val = 0;
-	bdrm_sector *original_sector = &orig_sector_val;
-	bdrm_sector *redirected_sector;
+	sector_t orig_sector_val = 0;
+	sector_t *original_sector = &orig_sector_val;
+	sector_t *redirected_sector;
 	int32_t to_read_in_clone;
 	int16_t status;
 
@@ -260,23 +252,23 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 	*original_sector = SECTOR_OFFSET + main_bio->bi_iter.bi_sector;
 	curr_rs_info = ds_lookup(redirect_manager->sel_data_struct, original_sector);
 
-	pr_info("READ: head: %lu, key: %lu\n", (unsigned long)bptree_head, *original_sector);
+	pr_info("READ: key: %llu\n", *original_sector);
 
 	if (!curr_rs_info) { // Read & Write sector starts aren't equal.
-		pr_info("Sector: %lu isnt mapped\n", *original_sector);
+		pr_info("Sector: %llu isnt mapped\n", *original_sector);
 
-		if (bptree_head->height == 0) { // BTREE is empty and we're getting system BIO's
+		if (ds_empty_check(redirect_manager->sel_data_struct)) { // ds is empty -> we're getting system BIO's
 			redirected_sector = kmalloc(sizeof(unsigned long), GFP_KERNEL);
 			if (redirected_sector == NULL)
 				goto mem_err;
 			*redirected_sector = *original_sector;
 			return 0;
 		}
-		last_rs = ds_get_last(redirect_manger->sel_data_struct, original_sector);
+		last_rs = ds_last(redirect_manager->sel_data_struct, original_sector);
 		if (!last_rs) 
 			goto get_err;
 
-		pr_info("last_rs = %lu\n", *last_rs->redirected_sector);
+		pr_info("last_rs = %llu\n", *last_rs->redirected_sector);
 
 		if (*original_sector > *last_rs->redirected_sector) {
 			/**  We got a system check in the middle of respond to
@@ -288,7 +280,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 			return 0;
 		}
 		
-		prev_rs_info = ds_get_prev(redirect_manager->sel_data_struct, original_sector);
+		prev_rs_info = ds_prev(redirect_manager->sel_data_struct, original_sector);
 		if (!prev_rs_info)
 			goto get_err;
 
@@ -296,7 +288,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 		to_read_in_clone = (*original_sector * 512 + main_bio->bi_iter.bi_size) - (*prev_rs_info->redirected_sector * 512 + prev_rs_info->block_size);
 		/* Address of main block end (reading fr:om original sector -> bi_size) -  First address of written blocks after original_sector */
 
-		pr_info("To read = %d, main size = %u, prev_rs bs = %u, prev_rs sector = %lu\n", to_read_in_clone, main_bio->bi_iter.bi_size, prev_rs_info->block_size, *prev_rs_info->redirected_sector);
+		pr_info("To read = %d, main size = %u, prev_rs bs = %u, prev_rs sector = %llu\n", to_read_in_clone, main_bio->bi_iter.bi_size, prev_rs_info->block_size, *prev_rs_info->redirected_sector);
 		pr_info("Clone bio: sector = %llu, size = %u, sec num = %u\n", clone_bio->bi_iter.bi_sector, clone_bio->bi_iter.bi_size, clone_bio->bi_iter.bi_size / SECTOR_SIZE);
 
 		if (clone_bio->bi_iter.bi_size <= prev_rs_info->block_size + clone_bio->bi_iter.bi_size - to_read_in_clone && clone_bio->bi_iter.bi_sector + clone_bio->bi_iter.bi_size / SECTOR_SIZE > *prev_rs_info->redirected_sector + prev_rs_info->block_size / SECTOR_SIZE) {
@@ -319,7 +311,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 			clone_bio->bi_iter.bi_size = prev_rs_info->block_size;
 		}
 	} else if (curr_rs_info->redirected_sector) { // Read & Write start sectors are equal.
-		pr_info("Found redirected sector: %lu, rs_bs = %u, main_bs = %u\n",
+		pr_info("Found redirected sector: %llu, rs_bs = %u, main_bs = %u\n",
 			*curr_rs_info->redirected_sector, curr_rs_info->block_size, main_bio->bi_iter.bi_size);
 
 		to_read_in_clone = main_bio->bi_iter.bi_size - curr_rs_info->block_size; // size of block to read ahead
@@ -330,7 +322,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 			if (status < 0)
 				goto split_err;
 			/** curr_rs_info = btree_get_next(bptree_head, &btree_geo64, original_sector);
-			 * pr_info("next rs %lu\n", *curr_rs_info->redirected_sector);
+			 * pr_info("next rs %llu\n", *curr_rs_info->redirected_sector);
 			 */
 		}
 		clone_bio->bi_iter.bi_size = (to_read_in_clone < 0) ? curr_rs_info->block_size + to_read_in_clone : curr_rs_info->block_size;
@@ -367,7 +359,6 @@ static void bdr_submit_bio(struct bio *bio)
 {
 	struct bio *clone;
 	struct bdrm_manager *current_redirect_manager;
-	void* current_ds_head;
 	int16_t status;
 
 	status = check_bio_link(bio);
@@ -402,11 +393,6 @@ if (bio_op(bio) == REQ_OP_READ) {
 
 link_err:
 	pr_err("Failed to check link\n");
-	bdrm_bio_end_io(bio);
-	return;
-
-ds_err:
-	pr_err("Failed to get data structure's head\n");
 	bdrm_bio_end_io(bio);
 	return;
 
@@ -658,10 +644,11 @@ static int bdr_delete_bd(const char *arg, const struct kernel_param *kp)
 
 static int check_available_ds(char* current_ds)
 {
-	int len = sizeof(available_ds)/sizeof(available_ds[0])
-	for(i = 0; i < len; ++i)
-	{
-		if(!strcmp(x[i], s))
+	int i, len = 0;
+	len = sizeof(available_ds)/sizeof(available_ds[0]);
+	
+	for(i = 0; i < len; ++i) {
+		if(!strcmp(available_ds[i], current_ds))
 			return 0;
 	}
 	return -1;
@@ -669,7 +656,10 @@ static int check_available_ds(char* current_ds)
 
 static int bdr_get_data_structs(char *buf, const struct kernel_param *kp)
 {
-	int i, offset, length, total_length;
+	int i = 0;
+	int offset = 0;
+	int length = 0;
+	int total_length = 0;
 
 	for (i = 0; i < sizeof(available_ds) / sizeof(available_ds[0]); i++) { 
 		length = sprintf(buf + offset, "%d. %s\n", i, available_ds[i]);
@@ -691,14 +681,14 @@ static int bdr_get_data_structs(char *buf, const struct kernel_param *kp)
  */
 static int bdr_set_data_struct(const char *arg, const struct kernel_param *kp)
 {
-	int status;
+
 	if (sscanf(arg, "%s", sel_ds) != 1) {
-		pr_err("Wrong input, 1 value required\n");
+		pr_err("Wrong input, 1 vallue required\n");
 		return -EINVAL;
 	}
 
 	if (check_available_ds(sel_ds)) {
-		pr_err("%s is not supported. Check available data structure by get_data_structs\n");
+		pr_err("%s is not supported. Check available data structure by get_data_structs\n", sel_ds);
 		return -1;
 	}
 	return 0;
@@ -714,7 +704,6 @@ static int bdr_set_redirect_bd(const char *arg, const struct kernel_param *kp)
 	int status;
 	int index;
 	char path[MAX_BD_NAME_LENGTH];
-	struct redirect_manager current_redirect_manager;
 
 	if (sscanf(arg, "%d %s", &index, path) != 2) {
 		pr_err("Wrong input, 2 values are required\n");
@@ -727,7 +716,7 @@ static int bdr_set_redirect_bd(const char *arg, const struct kernel_param *kp)
 		return PTR_ERR(&status);
 
 	list_last_entry(&bd_list, struct bdrm_manager, list);
-	status = ds_init(list_last_entry(&bd_list, struct bdrm_manager, list)->sel_data_struct);
+	status = ds_init(list_last_entry(&bd_list, struct bdrm_manager, list)->sel_data_struct, sel_ds);
 
 	if (status)
 		return PTR_ERR(&status);
@@ -810,7 +799,7 @@ static const struct kernel_param_ops bdr_redirect_ops = {
 	.get = NULL,
 };
 
-static const struct kernel_param_ops bdr_set_ds_ops = {
+static const struct kernel_param_ops bdr_ds_ops = {
 	.set = bdr_set_data_struct,
 	.get = bdr_get_data_structs,
 };
@@ -825,7 +814,7 @@ MODULE_PARM_DESC(set_redirect_bd, "Link local disk with redirect aim bd");
 module_param_cb(set_redirect_bd, &bdr_redirect_ops, NULL, 0200);
 
 MODULE_PARM_DESC(set_data_structure, "Set data structure to be used in mapping");
-module_param_cb(set_data_structure, &bdr_set_ds_ops, NULL, 0666);
+module_param_cb(set_data_structure, &bdr_ds_ops, NULL, S_IRUGO | S_IWUSR);
 
 module_init(bdr_init);
 module_exit(bdr_exit);

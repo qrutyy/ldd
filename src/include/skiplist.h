@@ -29,5 +29,6 @@ void skiplist_free(struct skiplist *sl);
 void skiplist_print(struct skiplist *sl);
 struct skiplist_node *skiplist_add(sector_t key, sector_t data,
 					struct skiplist *sl); // TODO: make data void*
+struct skiplist_node *skiplist_remove(sector_t key, struct skiplist *sl);
 struct skiplist_node *skiplist_prev(struct skiplist *sl, sector_t key);
 struct skiplist_node *skiplist_last(struct skiplist *sl);
