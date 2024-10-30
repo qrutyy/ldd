@@ -24,11 +24,10 @@ struct skiplist {
 };
 
 struct skiplist *skiplist_init(void);
-struct skiplist_node *skiplist_find_node(sector_t key, struct skiplist *sl);
+struct skiplist_node *skiplist_find_node(struct skiplist *sl, sector_t key);
 void skiplist_free(struct skiplist *sl);
 void skiplist_print(struct skiplist *sl);
-struct skiplist_node *skiplist_add(sector_t key, sector_t data,
-					struct skiplist *sl); // TODO: make data void*
-struct skiplist_node *skiplist_remove(sector_t key, struct skiplist *sl);
+struct skiplist_node *skiplist_add(struct skiplist *sl, sector_t key, sector_t data); // TODO: make data void*
+struct skiplist_node *skiplist_remove(struct skiplist *sl, sector_t key);
 struct skiplist_node *skiplist_prev(struct skiplist *sl, sector_t key);
 struct skiplist_node *skiplist_last(struct skiplist *sl);

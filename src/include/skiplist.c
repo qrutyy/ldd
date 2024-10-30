@@ -85,7 +85,7 @@ alloc_fail:
 	return NULL;
 }
 
-struct skiplist_node *skiplist_find_node(sector_t key, struct skiplist *sl)
+struct skiplist_node *skiplist_find_node(struct skiplist *sl, sector_t key)
 {
 	struct skiplist_node *curr = sl->head;
 
@@ -222,8 +222,7 @@ fail:
 	return ERR_PTR(-ENOMEM);
 }
 
-struct skiplist_node *skiplist_add(sector_t key, sector_t data,
-					struct skiplist *sl)
+struct skiplist_node *skiplist_add(struct skiplist *sl, sector_t key, sector_t data)
 {
 	struct skiplist_node *old;
 	struct skiplist_node *new;
@@ -250,7 +249,7 @@ fail:
 }
 
 
-struct skiplist_node *skiplist_remove(sector_t key, struct skiplist *sl) {
+struct skiplist_node *skiplist_remove(struct skiplist *sl, sector_t key) {
     struct skiplist_node *prev[MAX_LVL + 1];
     struct skiplist_node *target;
     struct skiplist_node *temp;

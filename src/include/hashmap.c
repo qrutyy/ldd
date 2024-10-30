@@ -1,4 +1,11 @@
-// SPDX-License-Identifier: GPL-2.0-only
+/* SPDX-License-Identifier: GPL-2.0-only
+ *
+ * Original Author: Viacheslav Sidorov @xamelllion
+ * 
+ * Modified by Mikhail Gavrilenko on _ 
+ * Changes: Briefly describe any modifications
+ * (REMOVE IF NOT MODIFIED)
+ */
 
 #include <linux/slab.h>
 #include "hashmap.h"
