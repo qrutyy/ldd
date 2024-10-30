@@ -343,3 +343,35 @@ void skiplist_print(struct skiplist *sl) {
 		head = head->lower;
 	}
 }
+
+struct skiplist_node *skiplist_last(struct skiplist *sl) {
+    struct skiplist_node *curr = sl->head;
+
+    while (curr->lower) {
+        curr = curr->lower;
+    }
+
+    while (curr->next && curr->next->key != TAIL_KEY) {
+        curr = curr->next;
+    }
+
+    return curr;
+}
+
+struct skiplist_node *skiplist_prev(struct skiplist *sl, sector_t key) {
+    struct skiplist_node *curr = sl->head;
+
+    while (curr) {
+        while (curr->next && curr->next->key < key) {
+            curr = curr->next;
+        }
+        
+        if (!curr->lower) {
+            return curr;
+        }
+
+        curr = curr->lower;
+    }
+
+    return NULL;
+}
