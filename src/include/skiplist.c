@@ -11,7 +11,7 @@
 #include "skiplist.h"
 
 #define HEAD_KEY ((sector_t)0)
-#define HEAD_DATA ((sector_t)U64_MAX)
+#define HEAD_DATA ((void*)U64_MAX)
 #define TAIL_KEY ((sector_t)U64_MAX)
 #define TAIL_DATA ((sector_t)0)
 #define MAX_LVL 20
@@ -27,7 +27,7 @@ static void free_node_full(struct skiplist_node *node)
 	}
 }
 
-static struct skiplist_node *create_node_tall(sector_t key, sector_t data,
+static struct skiplist_node *create_node_tall(sector_t key, void* data,
 								int h)
 {
 	struct skiplist_node *last;
@@ -54,7 +54,7 @@ alloc_fail:
 	return NULL;
 }
 
-static struct skiplist_node *create_node(sector_t key, sector_t data)
+static struct skiplist_node *create_node(sector_t key, void* data)
 {
 	return create_node_tall(key, data, 1);
 }
@@ -125,7 +125,7 @@ static int move_head_and_tail_up(struct skiplist *sl, int lvls_up)
 	}
 
 	curr->lower = sl->head;
-	temp->lower = skiplist_find_node(TAIL_KEY, sl);
+	temp->lower = skiplist_find_node(sl, TAIL_KEY);
 	sl->head = head_ext;
 
 	return 0;
@@ -192,7 +192,7 @@ static void get_prev_nodes(sector_t key, struct skiplist *sl,
 }
 
 static struct skiplist_node *skiplist_insert_at_lvl(sector_t key,
-		sector_t data, struct skiplist *sl, int lvl)
+		void* data, struct skiplist *sl, int lvl)
 {
 	struct skiplist_node *prev[MAX_LVL+1];
 	struct skiplist_node *new;
@@ -222,14 +222,14 @@ fail:
 	return ERR_PTR(-ENOMEM);
 }
 
-struct skiplist_node *skiplist_add(struct skiplist *sl, sector_t key, sector_t data)
+struct skiplist_node *skiplist_add(struct skiplist *sl, sector_t key, void* data)
 {
 	struct skiplist_node *old;
 	struct skiplist_node *new;
 	int lvl;
 	int err;
 
-	old = skiplist_find_node(key, sl);
+	old = skiplist_find_node(sl, key);
 	if (old)
 		return old;
 
@@ -334,7 +334,7 @@ void skiplist_print(struct skiplist *sl) {
 			else if (curr->key == TAIL_KEY && curr->data == TAIL_DATA)
 				printk(KERN_CONT "tail->");
 			else
-				printk(KERN_CONT "(%llu-%llu)->", curr->key, curr->data);
+				printk(KERN_CONT "(%llu-%llu)->", curr->key, (unsigned long long)curr->data);
 
 			curr = curr->next;
 		}
