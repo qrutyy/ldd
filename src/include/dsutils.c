@@ -9,29 +9,30 @@ int ds_init(struct data_struct *ds, char* sel_ds)
 	struct btree *btree_map;
 	struct btree_head *root;
 	int status = 0;
+	char* bt = "bt";
+	char* sl = "sl";
 
-	if (strcmp(sel_ds, "bt")) {
+	if (!strncmp(sel_ds, bt, 2)) {
 		btree_map = kmalloc(sizeof(struct btree), GFP_KERNEL);
-		if (!ds)
+		if (!btree_map)
 			goto mem_err;
 
 		root = kmalloc(sizeof(struct btree_head), GFP_KERNEL);
 		if (!root)
 			goto mem_err;
-		
+			
 		status = btree_init(root);
 		if (status) 
 			return status;
+
+		btree_map->head = root;
 		ds->type = BTREE_TYPE;
 		ds->structure.map_tree = btree_map;
-		ds->structure.map_list = NULL;
-		ds->structure.map_tree->head = root;
 	}
-	if (strcmp(sel_ds, "sl")) {
+	if (!strncmp(sel_ds, sl, 2)) {
 		struct skiplist *sl_map = skiplist_init();
 		ds->type = SKIPLIST_TYPE;
 		ds->structure.map_list = sl_map;
-		ds->structure.map_tree = NULL;
 	}
 
 	return 0;
@@ -60,7 +61,7 @@ void* ds_lookup(struct data_struct *ds, sector_t *key)
 		return btree_lookup(ds->structure.map_tree->head, &btree_geo64, (unsigned long *)key);
 	}
 	if (ds->type == SKIPLIST_TYPE) {
-		return skiplist_find_node(*key, ds->structure.map_list)->data;
+		return skiplist_find_node(ds->structure.map_list, *key)->data;
 	}
 	return 0;
 }
@@ -71,7 +72,7 @@ void ds_remove(struct data_struct *ds, sector_t *key)
 		btree_remove(ds->structure.map_tree->head, &btree_geo64, (unsigned long *)key);
 	}
 	if (ds->type == SKIPLIST_TYPE) {
-		skiplist_remove(*key, ds->structure.map_list);
+		skiplist_remove(ds->structure.map_list, *key);
 	}
 }
 
@@ -81,7 +82,7 @@ int ds_insert(struct data_struct *ds, sector_t *key, void* value)
 		return btree_insert(ds->structure.map_tree->head, &btree_geo64, (unsigned long *)key, value, GFP_KERNEL);
 	}
 	if (ds->type == SKIPLIST_TYPE) {
-		return skiplist_add(*key, value, ds->structure.map_list)->data;
+		skiplist_add(ds->structure.map_list, *key, value);
 	}
 	return 0;
 }
