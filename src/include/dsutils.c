@@ -57,13 +57,23 @@ void ds_free(struct data_struct *ds) {
 
 void* ds_lookup(struct data_struct *ds, sector_t *key)
 {
+	struct skiplist_node *found_node;
+
 	if (ds->type == BTREE_TYPE) {
 		return btree_lookup(ds->structure.map_tree->head, &btree_geo64, (unsigned long *)key);
 	}
 	if (ds->type == SKIPLIST_TYPE) {
-		return skiplist_find_node(ds->structure.map_list, *key)->data;
+		found_node = skiplist_find_node(ds->structure.map_list, *key);
+		if (found_node == NULL)
+			return NULL;
+		if (found_node->data == NULL) {
+			pr_info("Warning: Data in skiplist node is NULL\n");
+			return NULL;
+		}
+
+		return found_node;
 	}
-	return 0;
+	return NULL;
 }
 
 void ds_remove(struct data_struct *ds, sector_t *key)
@@ -89,12 +99,14 @@ int ds_insert(struct data_struct *ds, sector_t *key, void* value)
 
 void* ds_last(struct data_struct *ds, sector_t *key)
 {
+	pr_info("Last entered\n");
 	if (ds->type == BTREE_TYPE) {
 		return btree_last_no_rep(ds->structure.map_tree->head, &btree_geo64, (unsigned long *)key);
 	}
 	if (ds->type == SKIPLIST_TYPE) {
 		return skiplist_last(ds->structure.map_list)->data;
 	}
+	pr_info("Last exited\n");
 	return NULL;
 }
 
@@ -113,7 +125,7 @@ int ds_empty_check(struct data_struct *ds)
 {
 	if (ds->type == BTREE_TYPE && ds->structure.map_tree->head->height == 0)
 		return 1;
-	if (ds->type == SKIPLIST_TYPE && ds->structure.map_list->head->next == NULL && ds->structure.map_list->head->lower == NULL) 
+	if (ds->type == SKIPLIST_TYPE && ds->structure.map_list->head_lvl == 0) 
 		return 1;
 	return 0;
 }

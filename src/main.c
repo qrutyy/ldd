@@ -50,7 +50,6 @@ static int check_bdrm_manager_by_name(char *bd_name)
 	struct bdrm_manager *entry;
 
 	list_for_each_entry(entry, &bd_list, list) {
-		pr_info("%s\n", entry->middle_disk->disk_name);
 		if (entry->middle_disk->disk_name == bd_name &&
 			entry->bdev_handler != NULL)
 			return 0;
@@ -86,15 +85,12 @@ static int convert_to_int(const char *arg)
 
 static int check_bio_link(struct bio *bio)
 {
-	pr_info("1\n");
 	if (check_bdrm_manager_by_name(bio->bi_bdev->bd_disk->disk_name)) {
 		pr_err(
 			"No such bdrm_manager with middle disk %s and not empty handler\n",
 			bio->bi_bdev->bd_disk->disk_name);
-		pr_info("2\n");
 		return -EINVAL;
 	}
-	pr_info("Returning from check_bio_link\n");
 
 	return 0;
 }
@@ -268,6 +264,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 			*redirected_sector = *original_sector;
 			return 0;
 		}
+
 		last_rs = ds_last(redirect_manager->sel_data_struct, original_sector);
 		if (!last_rs) 
 			goto get_err;
