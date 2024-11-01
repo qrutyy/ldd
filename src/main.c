@@ -50,6 +50,7 @@ static int check_bdrm_manager_by_name(char *bd_name)
 	struct bdrm_manager *entry;
 
 	list_for_each_entry(entry, &bd_list, list) {
+		pr_info("%s\n", entry->middle_disk->disk_name);
 		if (entry->middle_disk->disk_name == bd_name &&
 			entry->bdev_handler != NULL)
 			return 0;
@@ -85,12 +86,15 @@ static int convert_to_int(const char *arg)
 
 static int check_bio_link(struct bio *bio)
 {
+	pr_info("1\n");
 	if (check_bdrm_manager_by_name(bio->bi_bdev->bd_disk->disk_name)) {
 		pr_err(
 			"No such bdrm_manager with middle disk %s and not empty handler\n",
 			bio->bi_bdev->bd_disk->disk_name);
+		pr_info("2\n");
 		return -EINVAL;
 	}
+	pr_info("Returning from check_bio_link\n");
 
 	return 0;
 }
@@ -144,7 +148,7 @@ static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone
 
 	curr_rs_info->block_size = main_bio->bi_iter.bi_size;
 	curr_rs_info->redirected_sector = redirected_sector;
-
+	pr_info("%p\n", current_redirect_manager->sel_data_struct);
 	old_mapped_rs_info = ds_lookup(current_redirect_manager->sel_data_struct, original_sector);
 	if (!old_mapped_rs_info)
 		goto lookup_err;
@@ -360,6 +364,7 @@ static void bdr_submit_bio(struct bio *bio)
 	struct bio *clone;
 	struct bdrm_manager *current_redirect_manager;
 	int16_t status;
+	pr_info("Entered submit bio\n");
 
 	status = check_bio_link(bio);
 	if (status) 
@@ -390,8 +395,10 @@ if (bio_op(bio) == REQ_OP_READ) {
 
 	submit_bio(clone);
 	pr_info("Submitted bio\n\n");
+	return;
 
 link_err:
+	pr_info("?\n");
 	pr_err("Failed to check link\n");
 	bdrm_bio_end_io(bio);
 	return;
@@ -460,6 +467,7 @@ free_bd_meta:
 /**
  * check_and_open_bd() - Checks if name is occupied, if so - opens the BD, if
  * not - return -EINVAL. Additionally adds the BD to the vector.
+ * and initialises data_struct.
  */
 static int check_and_open_bd(char *bd_path)
 {
@@ -467,7 +475,8 @@ static int check_and_open_bd(char *bd_path)
 	struct bdrm_manager *current_bdev_manager =
 		kmalloc(sizeof(struct bdrm_manager), GFP_KERNEL);
 	struct bdev_handle *current_bdev_handle = NULL;
-
+	struct data_struct *curr_ds = kmalloc(sizeof(struct data_struct), GFP_KERNEL);// TODO: add mem_check
+	
 	current_bdev_handle = open_bd_on_rw(bd_path);
 
 	if (IS_ERR(current_bdev_handle)) {
@@ -477,6 +486,8 @@ static int check_and_open_bd(char *bd_path)
 
 	current_bdev_manager->bdev_handler = current_bdev_handle;
 	current_bdev_manager->bd_name = bd_path;
+	current_bdev_manager->sel_data_struct = curr_ds;
+
 	vector_add_bd(current_bdev_manager);
 
 	if (error) {
@@ -489,6 +500,7 @@ static int check_and_open_bd(char *bd_path)
 	return 0;
 
 free_bdev:
+	kfree(curr_ds);
 	kfree(current_bdev_manager);
 	return PTR_ERR(current_bdev_handle);
 }
@@ -714,18 +726,16 @@ static int bdr_set_redirect_bd(const char *arg, const struct kernel_param *kp)
 
 	if (status)
 		return PTR_ERR(&status);
-
-	list_last_entry(&bd_list, struct bdrm_manager, list);
+	
 	status = ds_init(list_last_entry(&bd_list, struct bdrm_manager, list)->sel_data_struct, sel_ds);
 
 	if (status)
-		return PTR_ERR(&status);
+		return status;
 
 	status = create_bd(index);
 
 	if (status)
-		return PTR_ERR(&status);
-
+		return status;
 	return 0;
 }
 
