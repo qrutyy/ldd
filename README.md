@@ -1,8 +1,8 @@
-# BDRM 
-BDRM is a block device driver that implements log-structured storage based on B+ data structure.
+# LS-BDD
+LS-BDD is a block device driver that implements log-structured storage based on B+ data structure.
 Driver is based on BIO request management and supports BIO split.
 
-For more info - see [presentation v1](https://github.com/qrutyy/ldd/blob/main/blockdev/bdrm/LogStructuredStoringBasedOnB+Tree.pdf)
+For more info - see [presentation v1](https://github.com/qrutyy/ls-bdd/blob/main/docs/LogStructuredStoringBasedOnB+Tree.pdf)
 
 ***Compatable with Linux Kernel 6.8***
 
@@ -46,4 +46,4 @@ python3 test/autotest.py -c
 
 ## License
 
-Distributed under the [GPL-2.0 License](https://github.com/qrutyy/ldd/blob/main/LICENSE). 
+Distributed under the [GPL-2.0 License](https://github.com/qrutyy/ls-bdd/blob/main/LICENSE). 
