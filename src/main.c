@@ -2,7 +2,6 @@
 
 #include <linux/bio.h>
 #include <linux/blkdev.h>
-#include <linux/btree.h>
 #include <linux/list.h>
 #include <linux/moduleparam.h>
 #include "include/dsutils.h"
@@ -23,7 +22,7 @@ static int bdrm_major;
 char sel_ds[MAX_DS_NAME_LEN + 1];
 struct bio_set *bdrm_pool;
 struct list_head bd_list;
-static const char *available_ds[] = { "bt", "sl"};
+static const char *available_ds[] = { "bt", "sl", "hm"};
 
 struct redir_sector_info {
 	sector_t *redirected_sector;
