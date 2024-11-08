@@ -8,5 +8,5 @@ ccflags-y := 	-Wall					\
 		-Werror=format-security			\
 		-Werror=implicit-function-declaration	
 
-obj-m := bdrm.o
-bdrm-objs := main.o include/btreeutils.o include/skiplist.o include/dsutils.o
+obj-m := lsbdd.o
+bdrm-objs := main.o include/btreeutils.o include/skiplist.o include/dsutils.o include/hashtableutils.o
