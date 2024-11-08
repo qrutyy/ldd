@@ -30,6 +30,7 @@ lint:
 
 clean:
 	rm -rf *.o *~ core .depend .*.cmd *.ko *.mod.c .tmp_versions *.symvers *.mod *.order *.o.d
+	rm -rf include/*.o include/.*.cmd include/.*.o.d
 
 .PHONY: modules modules_install clean
 
