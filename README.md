@@ -11,10 +11,10 @@ Highly recommended to test/use the driver using a VM, to protect your data from 
 ### Initialisation:
 ```bash
 make
-insmod bdrm.ko
+insmod lsbdd.ko
 echo "index path" > /sys/module/bdrm/parameters/set_redirect_bd
 ```
-**index** - postfix for a 'device in the middle' (prefix is bdr), **path** - to which block device to redirect
+**index** - postfix for a 'device in the middle' (prefix is 'lsvbd'), **path** - to which block device to redirect
 
 *Can be reduced to `make`, `make ins` and `make set` *
 
@@ -22,16 +22,16 @@ echo "index path" > /sys/module/bdrm/parameters/set_redirect_bd
 
 **Initialised f.e:**
 ```bash
-echo "1 /dev/vdb" > /sys/module/bdrm/parameters/set_redirect_bd
-cat /sys/module/bdrm/parameters/get_bd_names // to get the links
+echo "1 /dev/vdb" > /sys/module/lsbdd/parameters/set_redirect_bd
+cat /sys/module/lsbdd/parameters/get_bd_names // to get the links
 ```
 ### Writing
 ```
-dd if=/dev/urandom of=/dev/bdr1 oflag=direct bs=2K count=10;
+dd if=/dev/urandom of=/dev/lsvbd1 oflag=direct bs=2K count=10;
 ```
 ### Reading
 ```
-dd of=test2.txt if=/dev/bdr1 iflag=direct bs=4K count=10; 
+dd of=test2.txt if=/dev/lsvbd1 iflag=direct bs=4K count=10; 
 ```
 
 ### Testing

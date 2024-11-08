@@ -84,7 +84,7 @@ def compare_files(file1, file2, block_size, count):
 
 def run_dd_write_command(input_file, block_size, count):
     try:
-        write_cmd = f"dd if={input_file} of=/dev/bdr1 oflag=direct bs={block_size}k count={count}"
+        write_cmd = f"dd if={input_file} of=/dev/lsvbd1 oflag=direct bs={block_size}k count={count}"
         print(f"Running command: {write_cmd}")
         subprocess.run(write_cmd, shell=True, check=True, text=True)
 
@@ -93,7 +93,7 @@ def run_dd_write_command(input_file, block_size, count):
 
 def run_dd_read_command(output_file, block_size, count): 
     try:
-        read_cmd = f"dd if=/dev/bdr1 of={output_file} iflag=direct bs={block_size}k count={count}"
+        read_cmd = f"dd if=/dev/lsvbd1 of={output_file} iflag=direct bs={block_size}k count={count}"
         print(f"Running command: {read_cmd}")
         subprocess.run(read_cmd, shell=True, check=True, text=True)
 
