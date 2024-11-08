@@ -6,7 +6,8 @@
 
 enum data_type {
 	BTREE_TYPE,
-    SKIPLIST_TYPE
+    SKIPLIST_TYPE,
+	HASHMAP_TYPE
 };
 
 struct data_struct {
@@ -14,6 +15,7 @@ struct data_struct {
 	union {
         struct btree *map_tree;
         struct skiplist *map_list;
+		struct hashmap *map_hash;
     } structure;
 };
 

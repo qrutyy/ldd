@@ -1,10 +1,9 @@
-#include <linux/hashmap.h>
+#include <linux/hashtable.h>
 #include <linux/btree.h>
 #include "dsutils.h"
 #include "btreeutils.h"
-#include "hashmaputils.h"
+#include "hashtableutils.h"
 #include "skiplist.h"
-#include "../main.h"
 
 int ds_init(struct data_struct *ds, char* sel_ds)
 {
@@ -14,6 +13,7 @@ int ds_init(struct data_struct *ds, char* sel_ds)
 	int status = 0;
 	char* bt = "bt";
 	char* sl = "sl";
+	char* hm = "hm";
 
 	if (!strncmp(sel_ds, bt, 2)) {
 		btree_map = kmalloc(sizeof(struct btree), GFP_KERNEL);
@@ -41,7 +41,7 @@ int ds_init(struct data_struct *ds, char* sel_ds)
 		hash_map = kmalloc(sizeof(struct hashmap), GFP_KERNEL);
 		if (!hash_map)
 			goto mem_err;
-		hash_init(hash_map->head, HT_MAP_BITS);
+		hash_init(hash_map->head);
 		ds->type = HASHMAP_TYPE;
 		ds->structure.map_hash = hash_map;  
 	}
@@ -72,30 +72,35 @@ void ds_free(struct data_struct *ds) {
 
 void* ds_lookup(struct data_struct *ds, sector_t *key)
 {
-	struct skiplist_node *found_node;
+	struct skiplist_node *sl_node;
+	struct hash_el *hm_node;
 
 	if (ds->type == BTREE_TYPE) {
 		return btree_lookup(ds->structure.map_tree->head, &btree_geo64, (unsigned long *)key);
 	}
 	if (ds->type == SKIPLIST_TYPE) {
-		found_node = skiplist_find_node(ds->structure.map_list, *key);
-		if (found_node == NULL)
+		sl_node = skiplist_find_node(ds->structure.map_list, *key);
+		if (sl_node == NULL)
 			return NULL;
-		if (found_node->data == NULL) {
+		if (sl_node->data == NULL) {
 			pr_info("Warning: Data in skiplist node is NULL\n");
 			return NULL;
 		}
-		return found_node;
+		return sl_node;
 	}
 	if (ds->type == HASHMAP_TYPE) {
-		return hashmap_find_node(ds->structure.map_hash, *key)->value;
+		hm_node = hashmap_find_node(ds->structure.map_hash, *key);
+		if (hm_node == NULL || hm_node->value)
+			return NULL;
+
+		return hm_node->value;
 	}
 	return NULL;
 }
 
 void ds_remove(struct data_struct *ds, sector_t *key)
 {
-	struct hlist *hm_node;
+	struct hlist_node hm_node;
 
 	if (ds->type == BTREE_TYPE) {
 		btree_remove(ds->structure.map_tree->head, &btree_geo64, (unsigned long *)key);
@@ -105,7 +110,7 @@ void ds_remove(struct data_struct *ds, sector_t *key)
 	}
 	if (ds->type == HASHMAP_TYPE) {
 		hm_node = hashmap_find_node(ds->structure.map_hash, *key)->node;	
-		hash_del(hm_node);
+		hash_del(&hm_node);
 	}
 }
 
@@ -121,16 +126,16 @@ int ds_insert(struct data_struct *ds, sector_t *key, void* value)
 	if (ds->type == HASHMAP_TYPE) {
 		el = kmalloc(sizeof(struct hash_el), GFP_KERNEL);
 		if (!el)
-			goto mem_err:
+			goto mem_err;
 
-		el->key = *key;
+		el->key = (intptr_t)key;
 		el->value = value;
-		hash_add(ds->structure.map_hash->head, el->node, el);
+		hash_add(ds->structure.map_hash->head, &el->node, (uint32_t)(uintptr_t)el);
 	}
 	return 0;
 mem_err:
 	pr_err("Memory allocation failed\n");
-	kfree(el)
+	kfree(el);
 	return -ENOMEM;
 }
 
