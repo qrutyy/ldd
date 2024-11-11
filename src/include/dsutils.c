@@ -86,7 +86,7 @@ void* ds_lookup(struct data_struct *ds, sector_t *key)
 			pr_info("Warning: Data in skiplist node is NULL\n");
 			return NULL;
 		}
-		return sl_node;
+		return sl_node->data;
 	}
 	if (ds->type == HASHMAP_TYPE) {
 		hm_node = hashmap_find_node(ds->structure.map_hash, *key);
@@ -128,11 +128,12 @@ int ds_insert(struct data_struct *ds, sector_t *key, void* value)
 		if (!el)
 			goto mem_err;
 
-		el->key = (intptr_t)key;
+		el->key = *key;
 		el->value = value;
 		hash_add(ds->structure.map_hash->head, &el->node, (uint32_t)(uintptr_t)el);
 	}
 	return 0;
+
 mem_err:
 	pr_err("Memory allocation failed\n");
 	kfree(el);
@@ -141,22 +142,31 @@ mem_err:
 
 void* ds_last(struct data_struct *ds, sector_t *key)
 {
-	pr_info("Last entered\n");
+	struct hash_el *hm_node;
+	struct skiplist_node *sl_node;
 	if (ds->type == BTREE_TYPE) {
 		return btree_last_no_rep(ds->structure.map_tree->head, &btree_geo64, (unsigned long *)key);
 	}
 	if (ds->type == SKIPLIST_TYPE) {
-		return skiplist_last(ds->structure.map_list)->data;
+		sl_node = skiplist_last(ds->structure.map_list);
+		if (!sl_node)
+			return NULL;
+		return sl_node->data;
 	}
 	if (ds->type == HASHMAP_TYPE) {
-		return hashmap_last(ds->structure.map_hash)->value;
+		hm_node = hashmap_last(ds->structure.map_hash);
+		if (!hm_node) {
+			pr_info("BUG!\n");
+			return NULL;
+		}
+		return hm_node->value;
 	}
-	pr_info("Last exited\n");
 	return NULL;
 }
 
 void* ds_prev(struct data_struct *ds, sector_t *key)
 {
+	struct hash_el *hm_node;
 	if (ds->type == BTREE_TYPE) {
 		return btree_get_prev_no_rep(ds->structure.map_tree->head, &btree_geo64, (unsigned long *)key);
 	}
@@ -164,7 +174,12 @@ void* ds_prev(struct data_struct *ds, sector_t *key)
 		return skiplist_prev(ds->structure.map_list, *key)->data;
 	}
 	if (ds->type == HASHMAP_TYPE) {
-		return hashmap_prev(ds->structure.map_hash, *key)->value;
+		hm_node = hashmap_prev(ds->structure.map_hash, *key);
+		if (!hm_node) {
+			pr_info("BUG V2\n");
+			return NULL;
+		}
+		return hm_node->value;
 	}
 	return NULL;
 }
