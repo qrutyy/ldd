@@ -6,7 +6,7 @@ import subprocess
 import os
 
 BDRM_DIR = '../'
-TEST_DIR = './generated_tf'
+TEST_DIR = '../test/generated_tf'
 
 DEF_SUITABLE_FB = [32, 36, 48, 64, 128, 256, 512, 1024, 2048, 4096]
 
@@ -129,7 +129,7 @@ def run_test_files(num_files, file_size_kb, block_size_kb):
             compare_files(input_file, output_file, list(block_size_kb), list(count))
        
 def proceed_run(num_files, file_size_kb, block_size_kb):
-    prepare_driver()
+#     prepare_driver()
     clean_dir(TEST_DIR)
 
     if file_size_kb == 0:
