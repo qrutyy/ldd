@@ -121,15 +121,21 @@ static void bdd_bio_end_io(struct bio *bio)
 static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone_bio, struct bdd_manager *current_redirect_manager)
 {
 	int status;
-	sector_t original_sector_val = 0;
-	sector_t *original_sector = &original_sector_val;
-	sector_t redirected_sector_val = 0;
-	sector_t *redirected_sector = &redirected_sector_val;
+	sector_t *original_sector;
+	sector_t *redirected_sector;
 	struct redir_sector_info *old_mapped_rs_info; // Old redirected_sector from B+Tree
 	struct redir_sector_info *curr_rs_info;
-
+	
+	original_sector = kmalloc(sizeof(uint64_t), GFP_KERNEL);
+	if (original_sector == NULL)
+		goto mem_err;
+	
 	curr_rs_info = kmalloc(sizeof(struct redir_sector_info), GFP_KERNEL);
 	if (curr_rs_info == NULL)
+		goto mem_err;
+
+	redirected_sector = kmalloc(sizeof(uint64_t), GFP_KERNEL);
+	if (redirected_sector == NULL) 
 		goto mem_err;
 
 	if (main_bio->bi_iter.bi_sector == 0)
@@ -143,17 +149,18 @@ static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone
 
 	curr_rs_info->block_size = main_bio->bi_iter.bi_size;
 	curr_rs_info->redirected_sector = redirected_sector;
-	pr_info("%p\n", current_redirect_manager->sel_data_struct);
+
 	old_mapped_rs_info = ds_lookup(current_redirect_manager->sel_data_struct, original_sector);
 	if (!old_mapped_rs_info)
-		goto lookup_err;
+		pr_err("Lookup in data structure _ failed\n");
+	pr_info("old rs %p", old_mapped_rs_info);
 
-	pr_info("WRITE: key: %llu, val: %p\n", *original_sector, redirected_sector);
+	pr_info("WRITE: key: %llu, sec: %llu\n", *original_sector, *curr_rs_info->redirected_sector);
 
 	if (old_mapped_rs_info &&
 		old_mapped_rs_info->redirected_sector != redirected_sector) {
+		pr_info("entered\n");
 		ds_remove(current_redirect_manager->sel_data_struct, original_sector);
-		pr_info("removed old mapping (mapped_redirect_address = %llu redirected_sector = %llu)\n", *old_mapped_rs_info->redirected_sector, *redirected_sector);
 	}
 
 	status = ds_insert(current_redirect_manager->sel_data_struct, original_sector, curr_rs_info);	
@@ -164,9 +171,6 @@ static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone
 
 	return 0;
 
-lookup_err:
-	pr_err("Lookup in data structure _ failed\n"); // TODO: add ds name
-	
 insert_err:
 	pr_err("Failed inserting key: %llu vallue: %p in _\n", *original_sector, curr_rs_info);
 	return status;
@@ -229,8 +233,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 	struct redir_sector_info *curr_rs_info;
 	struct redir_sector_info *prev_rs_info;
 	struct redir_sector_info *last_rs = NULL;
-	sector_t orig_sector_val = 0;
-	sector_t *original_sector = &orig_sector_val;
+	sector_t *original_sector;
 	sector_t *redirected_sector;
 	int32_t to_read_in_clone;
 	int16_t status;
@@ -248,6 +251,10 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 	if (prev_rs_info == NULL)
 		goto mem_err;
 
+	original_sector = kmalloc(sizeof(sector_t), GFP_KERNEL);
+	if (original_sector == NULL) 
+		goto mem_err;
+
 	*original_sector = SECTOR_OFFSET + main_bio->bi_iter.bi_sector;
 	curr_rs_info = ds_lookup(redirect_manager->sel_data_struct, original_sector);
 
@@ -255,19 +262,20 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 
 	if (!curr_rs_info) { // Read & Write sector starts aren't equal.
 		pr_info("Sector: %llu isnt mapped\n", *original_sector);
-
+	
 		if (ds_empty_check(redirect_manager->sel_data_struct)) { // ds is empty -> we're getting system BIO's
+			pr_info("1\n");
 			redirected_sector = kmalloc(sizeof(unsigned long), GFP_KERNEL);
 			if (redirected_sector == NULL)
 				goto mem_err;
 			*redirected_sector = *original_sector;
 			return 0;
 		}
-
+		pr_info("2\n");
 		last_rs = ds_last(redirect_manager->sel_data_struct, original_sector);
 		if (!last_rs) 
 			goto get_err;
-
+		
 		pr_info("last_rs = %llu\n", *last_rs->redirected_sector);
 
 		if (*original_sector > *last_rs->redirected_sector) {
@@ -312,7 +320,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 		}
 	} else if (curr_rs_info->redirected_sector) { // Read & Write start sectors are equal.
 		pr_info("Found redirected sector: %llu, rs_bs = %u, main_bs = %u\n",
-			*curr_rs_info->redirected_sector, curr_rs_info->block_size, main_bio->bi_iter.bi_size);
+			*(curr_rs_info->redirected_sector), curr_rs_info->block_size, main_bio->bi_iter.bi_size);
 
 		to_read_in_clone = main_bio->bi_iter.bi_size - curr_rs_info->block_size; // size of block to read ahead
 		clone_bio->bi_iter.bi_sector = *curr_rs_info->redirected_sector;
