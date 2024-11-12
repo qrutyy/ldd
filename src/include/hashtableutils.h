@@ -3,7 +3,7 @@
 #pragma once
 
 #define HT_MAP_BITS 7
-#define CHUNK_SIZE 1024 * 1024
+#define CHUNK_SIZE 1024 * 2
 #define BUCKET_NUM (sector_t)(key / (CHUNK_SIZE))
 
 struct hashmap {

@@ -133,7 +133,7 @@ int ds_insert(struct data_struct *ds, sector_t *key, void* value)
 
 		el->key = *key;
 		el->value = value;
-		hash_add(ds->structure.map_hash->head, &el->node, (uint32_t)(uintptr_t)el);
+		hash_add_cs(ds->structure.map_hash->head, &el->node, *key);
 		if (ds->structure.map_hash->last_el->key < *key) {
 			ds->structure.map_hash->last_el = el;
 		}
@@ -160,12 +160,6 @@ void* ds_last(struct data_struct *ds, sector_t *key)
 		return sl_node->data;
 	}
 	if (ds->type == HASHMAP_TYPE) {
-/*		hm_node = hashmap_last(ds->structure.map_hash);
-		if (!hm_node) {
-			pr_info("BUG!\n");
-			return NULL;
-		}
-		return hm_node->value; */
 		hm_node = ds->structure.map_hash->last_el;
 		if (hm_node && hm_node->value)
 			return hm_node->value;
@@ -185,7 +179,7 @@ void* ds_prev(struct data_struct *ds, sector_t *key)
 	if (ds->type == HASHMAP_TYPE) {
 		hm_node = hashmap_prev(ds->structure.map_hash, *key);
 		if (!hm_node) {
-			pr_info("BUG V2\n");
+			pr_info("Prev key hasn't been found in his/prev bucket\n");
 			return NULL;
 		}
 		return hm_node->value;
