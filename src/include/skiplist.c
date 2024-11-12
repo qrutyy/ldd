@@ -3,8 +3,8 @@
  * Originail author: Daniel Vlasenco @spisladqo
  * 
  * Modified by Mikhail Gavrilenko on _ 
- * Changes: _
- * (REMOVE IF NOT MODIFIED)
+ * Changes: add remove, get_last, get_prev methods
+ * Fixed some issues with remove. Modified the TAIL_DATA and data types that appear in structure.
  */
 
 
