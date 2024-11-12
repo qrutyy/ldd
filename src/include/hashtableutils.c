@@ -4,6 +4,11 @@
 #include "hashtableutils.h"
 #include <linux/slab.h>
 
+
+void hash_add_cs(struct hlist_head *hm_head, struct hlist_node *node, sector_t key) {
+	hlist_add_head(node, &hm_head[hash_min(BUCKET_NUM, HT_MAP_BITS)]);
+}
+
 void hashmap_free(struct hashmap *hm) {
 	int bckt_iter = 0;
 	struct hash_el *el;
@@ -12,13 +17,16 @@ void hashmap_free(struct hashmap *hm) {
 			hash_del(&el->node);
 			kfree(el);
 	}
-	// add full free?
+	kfree(hm->last_el);
+	kfree(hm);
 }
 
 struct hash_el* hashmap_find_node(struct hashmap *hm, sector_t key) {
-	int bckt_iter = 0;
 	struct hash_el *el;
-	hash_for_each_possible(hm->head, el, node, key)
+	
+	pr_info("bucket_val %llu", BUCKET_NUM);
+
+	hlist_for_each_entry(el, &hm->head[hash_min(BUCKET_NUM, HT_MAP_BITS)], node)
 		if (el != NULL && el->key == key) {
 			pr_info("el key = %llu\n", el->key);
 			return el;
@@ -26,28 +34,29 @@ struct hash_el* hashmap_find_node(struct hashmap *hm, sector_t key) {
 	return NULL;
 }
 
-struct hash_el* hashmap_last(struct hashmap *hm) {
-	struct hash_el *max_value_node;
-	uint64_t max_key = 0;
-	int bckt_iter = 0;
-	struct hash_el *el;
-	hash_for_each(hm->head, bckt_iter, el, node)
-		if (el->key > max_key) {
-			max_key = el->key;
-			max_value_node = el;
-		} 
-	return max_value_node;
-}
-
 struct hash_el* hashmap_prev(struct hashmap *hm, sector_t key) {
-	struct hash_el *prev_max_node = kmalloc(sizeof( struct hash_el), GFP_KERNEL);
-	int bckt_iter = 0;
+	struct hash_el *prev_max_node = kzalloc(sizeof( struct hash_el), GFP_KERNEL);
 	struct hash_el *el;
-	hash_for_each(hm->head, bckt_iter, el, node) {
+	
+	pr_info("bucket_val %llu", BUCKET_NUM);
+
+	hlist_for_each_entry(el, &hm->head[hash_min(BUCKET_NUM, HT_MAP_BITS)], node) {
 		if (el && el->key <= key && el->key > prev_max_node->key) {
 			prev_max_node = el;
 		}
 		pr_info("prev el key = %llu\n", el->key);
+	}
+	if (prev_max_node->key == 0) {
+		pr_info("Prev is in the prev bucket\n");
+		// mb execute rexursively key + mb_size
+		hlist_for_each_entry(el, &hm->head[hash_min(BUCKET_NUM + 1, HT_MAP_BITS)], node) {
+			if (el && el->key <= key && el->key > prev_max_node->key) {
+				prev_max_node = el;
+			}
+			pr_info("prev el key = %llu\n", el->key);
+		}
+		if (prev_max_node->key == 0)
+			return NULL;
 	}
 	pr_info("el key = %llu, val %p, p %p\n", prev_max_node->key, prev_max_node->value, prev_max_node);
 

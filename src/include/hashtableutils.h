@@ -2,7 +2,9 @@
 
 #pragma once
 
-#define HT_MAP_BITS 10
+#define HT_MAP_BITS 7
+#define CHUNK_SIZE 1024 * 1024
+#define BUCKET_NUM (sector_t)(key / (CHUNK_SIZE))
 
 struct hashmap {
 	DECLARE_HASHTABLE(head, HT_MAP_BITS);
@@ -15,8 +17,8 @@ struct hash_el {
 	struct hlist_node node;
 };
 
+void hash_add_cs(struct hlist_head *hm_head, struct hlist_node *node, sector_t key);
 void hashmap_free(struct hashmap *hm);
 struct hash_el* hashmap_find_node(struct hashmap *hm, sector_t key);
-struct hash_el* hashmap_last(struct hashmap *hm);
 struct hash_el* hashmap_prev(struct hashmap *hm, sector_t key);
 
