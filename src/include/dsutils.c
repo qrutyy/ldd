@@ -9,7 +9,7 @@ int ds_init(struct data_struct *ds, char* sel_ds)
 {
 	struct btree *btree_map;
 	struct btree_head *root;
-	struct hashmap *hash_map; 
+	struct hashtable *hash_map; 
 	struct hash_el *last_hel;
 	int status = 0;
 	char* bt = "bt";
@@ -39,13 +39,13 @@ int ds_init(struct data_struct *ds, char* sel_ds)
 		ds->structure.map_list = sl_map;
 	}
 	if (!strncmp(sel_ds, hm, 2)) {
-		hash_map = kmalloc(sizeof(struct hashmap), GFP_KERNEL);
+		hash_map = kmalloc(sizeof(struct hashtable), GFP_KERNEL);
 		last_hel = kmalloc(sizeof(struct hash_el), GFP_KERNEL);
 		hash_map->last_el = last_hel;
 		if (!hash_map)
 			goto mem_err;
 		hash_init(hash_map->head);
-		ds->type = HASHMAP_TYPE;
+		ds->type = HASHTABLE_TYPE;
 		ds->structure.map_hash = hash_map;  
 	}
 	return 0;
@@ -67,8 +67,8 @@ void ds_free(struct data_struct *ds) {
 		skiplist_free(ds->structure.map_list);
 		ds->structure.map_list = NULL;
 	}
-	if (ds->type == HASHMAP_TYPE) {
-		hashmap_free(ds->structure.map_hash);
+	if (ds->type == HASHTABLE_TYPE) {
+		hashtable_free(ds->structure.map_hash);
 		ds->structure.map_hash = NULL;
 	}
 }
@@ -91,8 +91,8 @@ void* ds_lookup(struct data_struct *ds, sector_t *key)
 		}
 		return sl_node->data;
 	}
-	if (ds->type == HASHMAP_TYPE) {
-		hm_node = hashmap_find_node(ds->structure.map_hash, *key);
+	if (ds->type == HASHTABLE_TYPE) {
+		hm_node = hashtable_find_node(ds->structure.map_hash, *key);
 		if (hm_node == NULL || hm_node->value)
 			return NULL;
 
@@ -111,8 +111,8 @@ void ds_remove(struct data_struct *ds, sector_t *key)
 	if (ds->type == SKIPLIST_TYPE) {
 		skiplist_remove(ds->structure.map_list, *key);
 	}
-	if (ds->type == HASHMAP_TYPE) {
-		hm_node = hashmap_find_node(ds->structure.map_hash, *key)->node;	
+	if (ds->type == HASHTABLE_TYPE) {
+		hm_node = hashtable_find_node(ds->structure.map_hash, *key)->node;	
 		hash_del(&hm_node);
 	}
 }
@@ -126,7 +126,7 @@ int ds_insert(struct data_struct *ds, sector_t *key, void* value)
 	if (ds->type == SKIPLIST_TYPE) {
 		skiplist_add(ds->structure.map_list, *key, value);
 	}
-	if (ds->type == HASHMAP_TYPE) {
+	if (ds->type == HASHTABLE_TYPE) {
 		el = kmalloc(sizeof(struct hash_el), GFP_KERNEL);
 		if (!el)
 			goto mem_err;
@@ -159,7 +159,7 @@ void* ds_last(struct data_struct *ds, sector_t *key)
 			return NULL;
 		return sl_node->data;
 	}
-	if (ds->type == HASHMAP_TYPE) {
+	if (ds->type == HASHTABLE_TYPE) {
 		hm_node = ds->structure.map_hash->last_el;
 		if (hm_node && hm_node->value)
 			return hm_node->value;
@@ -176,8 +176,8 @@ void* ds_prev(struct data_struct *ds, sector_t *key)
 	if (ds->type == SKIPLIST_TYPE) {
 		return skiplist_prev(ds->structure.map_list, *key)->data;
 	}
-	if (ds->type == HASHMAP_TYPE) {
-		hm_node = hashmap_prev(ds->structure.map_hash, *key);
+	if (ds->type == HASHTABLE_TYPE) {
+		hm_node = hashtable_prev(ds->structure.map_hash, *key);
 		if (!hm_node) {
 			pr_info("Prev key hasn't been found in his/prev bucket\n");
 			return NULL;
@@ -193,7 +193,7 @@ int ds_empty_check(struct data_struct *ds)
 		return 1;
 	if (ds->type == SKIPLIST_TYPE && ds->structure.map_list->head_lvl == 0) 
 		return 1;
-	if (ds->type == HASHMAP_TYPE && hash_empty(ds->structure.map_hash->head))
+	if (ds->type == HASHTABLE_TYPE && hash_empty(ds->structure.map_hash->head))
 		return 1;
 	return 0;
 }
