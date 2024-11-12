@@ -28,6 +28,6 @@ struct skiplist_node *skiplist_find_node(struct skiplist *sl, sector_t key);
 void skiplist_free(struct skiplist *sl);
 void skiplist_print(struct skiplist *sl);
 struct skiplist_node *skiplist_add(struct skiplist *sl, sector_t key, void* data);
-struct skiplist_node *skiplist_remove(struct skiplist *sl, sector_t key);
+void skiplist_remove(struct skiplist *sl, sector_t key);
 struct skiplist_node *skiplist_prev(struct skiplist *sl, sector_t key);
 struct skiplist_node *skiplist_last(struct skiplist *sl);

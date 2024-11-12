@@ -6,7 +6,7 @@ import subprocess
 import os
 
 BDRM_DIR = '../'
-TEST_DIR = './generated_tf'
+TEST_DIR = '../test/generated_tf'
 
 DEF_SUITABLE_FB = [32, 36, 48, 64, 128, 256, 512, 1024, 2048, 4096]
 
@@ -84,7 +84,7 @@ def compare_files(file1, file2, block_size, count):
 
 def run_dd_write_command(input_file, block_size, count):
     try:
-        write_cmd = f"dd if={input_file} of=/dev/bdr1 oflag=direct bs={block_size}k count={count}"
+        write_cmd = f"dd if={input_file} of=/dev/lsvbd1 oflag=direct bs={block_size}k count={count}"
         print(f"Running command: {write_cmd}")
         subprocess.run(write_cmd, shell=True, check=True, text=True)
 
@@ -93,7 +93,7 @@ def run_dd_write_command(input_file, block_size, count):
 
 def run_dd_read_command(output_file, block_size, count): 
     try:
-        read_cmd = f"dd if=/dev/bdr1 of={output_file} iflag=direct bs={block_size}k count={count}"
+        read_cmd = f"dd if=/dev/lsvbd1 of={output_file} iflag=direct bs={block_size}k count={count}"
         print(f"Running command: {read_cmd}")
         subprocess.run(read_cmd, shell=True, check=True, text=True)
 
@@ -129,7 +129,7 @@ def run_test_files(num_files, file_size_kb, block_size_kb):
             compare_files(input_file, output_file, list(block_size_kb), list(count))
        
 def proceed_run(num_files, file_size_kb, block_size_kb):
-    prepare_driver()
+#     prepare_driver()
     clean_dir(TEST_DIR)
 
     if file_size_kb == 0:

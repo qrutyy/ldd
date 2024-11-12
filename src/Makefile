@@ -1,5 +1,5 @@
 CONFIG_MODULE_SIG=n
-name = bdrm
+name = lsbdd
 # To build modules outside of the kernel tree, we run "make"
 # in the kernel source tree; the Makefile these then includes this
 # Makefile once again.
@@ -30,6 +30,7 @@ lint:
 
 clean:
 	rm -rf *.o *~ core .depend .*.cmd *.ko *.mod.c .tmp_versions *.symvers *.mod *.order *.o.d
+	rm -rf include/*.o include/.*.cmd include/.*.o.d
 
 .PHONY: modules modules_install clean
 
