@@ -2,10 +2,11 @@
 
 #pragma once
 
-#define HT_MAP_BITS 6
+#define HT_MAP_BITS 10
 
 struct hashmap {
 	DECLARE_HASHTABLE(head, HT_MAP_BITS);
+	struct hash_el* last_el;
 };
 
 struct hash_el {

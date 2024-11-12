@@ -10,6 +10,7 @@ int ds_init(struct data_struct *ds, char* sel_ds)
 	struct btree *btree_map;
 	struct btree_head *root;
 	struct hashmap *hash_map; 
+	struct hash_el *last_hel;
 	int status = 0;
 	char* bt = "bt";
 	char* sl = "sl";
@@ -39,6 +40,8 @@ int ds_init(struct data_struct *ds, char* sel_ds)
 	}
 	if (!strncmp(sel_ds, hm, 2)) {
 		hash_map = kmalloc(sizeof(struct hashmap), GFP_KERNEL);
+		last_hel = kmalloc(sizeof(struct hash_el), GFP_KERNEL);
+		hash_map->last_el = last_hel;
 		if (!hash_map)
 			goto mem_err;
 		hash_init(hash_map->head);
@@ -131,6 +134,9 @@ int ds_insert(struct data_struct *ds, sector_t *key, void* value)
 		el->key = *key;
 		el->value = value;
 		hash_add(ds->structure.map_hash->head, &el->node, (uint32_t)(uintptr_t)el);
+		if (ds->structure.map_hash->last_el->key < *key) {
+			ds->structure.map_hash->last_el = el;
+		}
 	}
 	return 0;
 
@@ -154,12 +160,15 @@ void* ds_last(struct data_struct *ds, sector_t *key)
 		return sl_node->data;
 	}
 	if (ds->type == HASHMAP_TYPE) {
-		hm_node = hashmap_last(ds->structure.map_hash);
+/*		hm_node = hashmap_last(ds->structure.map_hash);
 		if (!hm_node) {
 			pr_info("BUG!\n");
 			return NULL;
 		}
-		return hm_node->value;
+		return hm_node->value; */
+		hm_node = ds->structure.map_hash->last_el;
+		if (hm_node && hm_node->value)
+			return hm_node->value;
 	}
 	return NULL;
 }
