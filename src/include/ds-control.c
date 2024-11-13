@@ -18,7 +18,6 @@ int ds_init(struct data_struct *ds, char* sel_ds)
 
 	if (!strncmp(sel_ds, bt, 2)) {
 		btree_map = kzalloc(sizeof(struct btree), GFP_KERNEL);
-		pr_info("aaa\n");
 		if (!btree_map)
 			goto mem_err;
 
@@ -93,7 +92,7 @@ void* ds_lookup(struct data_struct *ds, sector_t *key)
 		if (sl_node == NULL)
 			return NULL;
 		if (sl_node->data == NULL) {
-			pr_info("Warning: Data in skiplist node is NULL\n");
+			pr_warn("Data in skiplist node is NULL\n");
 			return NULL;
 		}
 		return sl_node->data;
@@ -189,7 +188,7 @@ void* ds_prev(struct data_struct *ds, sector_t *key)
 	if (ds->type == HASHTABLE_TYPE) {
 		hm_node = hashtable_prev(ds->structure.map_hash, *key);
 		if (!hm_node) {
-			pr_info("Prev key hasn't been found in his/prev bucket\n");
+			pr_debug("Prev key hasn't been found in his/prev bucket\n");
 			return NULL;
 		}
 		return hm_node->value;
