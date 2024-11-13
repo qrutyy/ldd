@@ -1,6 +1,6 @@
 #include <linux/hashtable.h>
 #include <linux/btree.h>
-#include "dsutils.h"
+#include "dscontrol.h"
 #include "btreeutils.h"
 #include "hashtableutils.h"
 #include "skiplist.h"
@@ -105,7 +105,7 @@ void* ds_lookup(struct data_struct *ds, sector_t *key)
 
 void ds_remove(struct data_struct *ds, sector_t *key)
 {
-	struct hlist_node *hm_node = NULL;
+	struct hlist_node hm_node;
 
 	if (ds->type == BTREE_TYPE) {
 		btree_remove(ds->structure.map_tree->head, &btree_geo64, (unsigned long *)key);

@@ -7,14 +7,6 @@
 #include <linux/slab.h>
 #include "btreeutils.h"
 
-MODULE_DESCRIPTION("Btree addon");
-MODULE_AUTHOR("Mike Gavrilenko - @qrutyy");
-MODULE_LICENSE("Dual MIT/GPL");
-
-#define LONG_PER_U64 (64 / BITS_PER_LONG)
-#define MAX_KEYLEN	(2 * LONG_PER_U64)
-
-
 struct btree_geo {
 	int keylen;
 	int no_pairs;

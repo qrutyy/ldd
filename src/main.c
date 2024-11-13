@@ -4,18 +4,12 @@
 #include <linux/blkdev.h>
 #include <linux/list.h>
 #include <linux/moduleparam.h>
-#include "include/dsutils.h"
+#include "include/dscontrol.h"
+#include "main.h"
 
 MODULE_DESCRIPTION("Log-Structured virtual Block Device Driver module");
 MODULE_AUTHOR("Mike Gavrilenko - @qrutyy");
 MODULE_LICENSE("Dual MIT/GPL");
-
-#define MAX_BD_NAME_LENGTH 15
-#define MAX_MINORS_AM 20
-#define MAX_DS_NAME_LEN 2
-#define MAIN_BLKDEV_NAME "lsvbd"
-#define POOL_SIZE 50
-#define SECTOR_OFFSET 32
 
 static int bdd_current_redirect_pair_index;
 static int bdd_major;
@@ -24,18 +18,6 @@ struct bio_set *bdd_pool;
 struct list_head bd_list;
 static const char *available_ds[] = { "bt", "sl", "hm"};
 
-struct redir_sector_info {
-	sector_t *redirected_sector;
-	unsigned int block_size;
-};
-
-struct bdd_manager {
-	char *bd_name;
-	struct gendisk *middle_disk;
-	struct bdev_handle *bdev_handler;
-	struct data_struct *sel_data_struct;
-	struct list_head list;
-};
 
 static int vector_add_bd(struct bdd_manager *current_bdev_manager)
 {
