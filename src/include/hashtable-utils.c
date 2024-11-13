@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 #include <linux/hashtable.h>
-#include "hashtableutils.h"
+#include "hashtable-utils.h"
 #include <linux/slab.h>
 
 

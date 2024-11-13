@@ -5,7 +5,7 @@
 #include <linux/cache.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>
-#include "btreeutils.h"
+#include "btree-utils.h"
 
 struct btree_geo {
 	int keylen;

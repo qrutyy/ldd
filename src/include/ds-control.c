@@ -1,8 +1,8 @@
 #include <linux/hashtable.h>
 #include <linux/btree.h>
-#include "dscontrol.h"
-#include "btreeutils.h"
-#include "hashtableutils.h"
+#include "ds-control.h"
+#include "btree-utils.h"
+#include "hashtable-utils.h"
 #include "skiplist.h"
 
 int ds_init(struct data_struct *ds, char* sel_ds)
@@ -18,6 +18,7 @@ int ds_init(struct data_struct *ds, char* sel_ds)
 
 	if (!strncmp(sel_ds, bt, 2)) {
 		btree_map = kzalloc(sizeof(struct btree), GFP_KERNEL);
+		pr_info("aaa\n");
 		if (!btree_map)
 			goto mem_err;
 
@@ -33,12 +34,12 @@ int ds_init(struct data_struct *ds, char* sel_ds)
 		ds->type = BTREE_TYPE;
 		ds->structure.map_tree = btree_map;
 	}
-	if (!strncmp(sel_ds, sl, 2)) {
+	else if (!strncmp(sel_ds, sl, 2)) {
 		struct skiplist *sl_map = skiplist_init();
 		ds->type = SKIPLIST_TYPE;
 		ds->structure.map_list = sl_map;
 	}
-	if (!strncmp(sel_ds, hm, 2)) {
+	else if (!strncmp(sel_ds, hm, 2)) {
 		hash_table = kzalloc(sizeof(struct hashtable), GFP_KERNEL);
 		last_hel = kzalloc(sizeof(struct hash_el), GFP_KERNEL);
 		hash_table->last_el = last_hel;
@@ -48,6 +49,10 @@ int ds_init(struct data_struct *ds, char* sel_ds)
 		hash_init(hash_table->head);
 		ds->type = HASHTABLE_TYPE;
 		ds->structure.map_hash = hash_table;  
+	}
+	else {
+		pr_err("Aborted. Data structure isn't choosed.\n");
+		return -1;
 	}
 	return 0;
 	
@@ -150,15 +155,14 @@ mem_err:
 
 void* ds_last(struct data_struct *ds, sector_t *key)
 {
-	struct hash_el *hm_node;
-	struct skiplist_node *sl_node;
+	struct hash_el *hm_node = NULL;
+	struct skiplist_node *sl_node = NULL;
+
 	if (ds->type == BTREE_TYPE) {
 		return btree_last_no_rep(ds->structure.map_tree->head, &btree_geo64, (unsigned long *)key);
 	}
 	if (ds->type == SKIPLIST_TYPE) {
 		sl_node = skiplist_last(ds->structure.map_list);
-		if (!sl_node)
-			return NULL;
 		return sl_node->data;
 	}
 	if (ds->type == HASHTABLE_TYPE) {
@@ -166,12 +170,16 @@ void* ds_last(struct data_struct *ds, sector_t *key)
 		if (hm_node && hm_node->value)
 			return hm_node->value;
 	}
+
+	pr_err("Failed to get rs_info from get_last()\n");
+	BUG();
+
 	return NULL;
 }
 
 void* ds_prev(struct data_struct *ds, sector_t *key)
 {
-	struct hash_el *hm_node;
+	struct hash_el *hm_node = NULL;
 	if (ds->type == BTREE_TYPE) {
 		return btree_get_prev_no_rep(ds->structure.map_tree->head, &btree_geo64, (unsigned long *)key);
 	}
@@ -186,7 +194,9 @@ void* ds_prev(struct data_struct *ds, sector_t *key)
 		}
 		return hm_node->value;
 	}
-	return NULL;
+
+	pr_err("Failed to get rs_info from get_prev()\n");
+	BUG();
 }
 
 int ds_empty_check(struct data_struct *ds)
