@@ -130,7 +130,7 @@ static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone
 	if (original_sector == NULL)
 		goto mem_err;
 	
-	curr_rs_info = kmalloc(sizeof(struct redir_sector_info), GFP_KERNEL);
+	curr_rs_info = kzalloc(sizeof(struct redir_sector_info), GFP_KERNEL);
 	if (curr_rs_info == NULL)
 		goto mem_err;
 
@@ -241,12 +241,12 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 	if (main_bio->bi_iter.bi_size == 0)
 		return 0;
 
-	curr_rs_info = kmalloc(sizeof(struct redir_sector_info), GFP_KERNEL);
+	curr_rs_info = kzalloc(sizeof(struct redir_sector_info), GFP_KERNEL);
 
 	if (curr_rs_info == NULL)
 		goto mem_err;
 
-	prev_rs_info = kmalloc(sizeof(struct redir_sector_info), GFP_KERNEL);
+	prev_rs_info = kzalloc(sizeof(struct redir_sector_info), GFP_KERNEL);
 
 	if (prev_rs_info == NULL)
 		goto mem_err;
@@ -477,9 +477,9 @@ static int check_and_open_bd(char *bd_path)
 {
 	int error;
 	struct bdd_manager *current_bdev_manager =
-		kmalloc(sizeof(struct bdd_manager), GFP_KERNEL);
+		kzalloc(sizeof(struct bdd_manager), GFP_KERNEL);
 	struct bdev_handle *current_bdev_handle = NULL;
-	struct data_struct *curr_ds = kmalloc(sizeof(struct data_struct), GFP_KERNEL);// TODO: add mem_check
+	struct data_struct *curr_ds = kzalloc(sizeof(struct data_struct), GFP_KERNEL);// TODO: add mem_check
 	
 	current_bdev_handle = open_bd_on_rw(bd_path);
 

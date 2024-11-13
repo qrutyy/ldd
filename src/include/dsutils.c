@@ -17,11 +17,11 @@ int ds_init(struct data_struct *ds, char* sel_ds)
 	char* hm = "hm";
 
 	if (!strncmp(sel_ds, bt, 2)) {
-		btree_map = kmalloc(sizeof(struct btree), GFP_KERNEL);
+		btree_map = kzalloc(sizeof(struct btree), GFP_KERNEL);
 		if (!btree_map)
 			goto mem_err;
 
-		root = kmalloc(sizeof(struct btree_head), GFP_KERNEL);
+		root = kzalloc(sizeof(struct btree_head), GFP_KERNEL);
 		if (!root)
 			goto mem_err;
 			
@@ -39,8 +39,8 @@ int ds_init(struct data_struct *ds, char* sel_ds)
 		ds->structure.map_list = sl_map;
 	}
 	if (!strncmp(sel_ds, hm, 2)) {
-		hash_map = kmalloc(sizeof(struct hashtable), GFP_KERNEL);
-		last_hel = kmalloc(sizeof(struct hash_el), GFP_KERNEL);
+		hash_map = kzalloc(sizeof(struct hashtable), GFP_KERNEL);
+		last_hel = kzalloc(sizeof(struct hash_el), GFP_KERNEL);
 		hash_map->last_el = last_hel;
 		if (!hash_map)
 			goto mem_err;
@@ -127,7 +127,7 @@ int ds_insert(struct data_struct *ds, sector_t *key, void* value)
 		skiplist_add(ds->structure.map_list, *key, value);
 	}
 	if (ds->type == HASHTABLE_TYPE) {
-		el = kmalloc(sizeof(struct hash_el), GFP_KERNEL);
+		el = kzalloc(sizeof(struct hash_el), GFP_KERNEL);
 		if (!el)
 			goto mem_err;
 
