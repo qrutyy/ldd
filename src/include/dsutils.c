@@ -7,10 +7,10 @@
 
 int ds_init(struct data_struct *ds, char* sel_ds)
 {
-	struct btree *btree_map;
-	struct btree_head *root;
-	struct hashtable *hash_map; 
-	struct hash_el *last_hel;
+	struct btree *btree_map = NULL;
+	struct btree_head *root = NULL;
+	struct hashtable *hash_table = NULL; 
+	struct hash_el *last_hel = NULL;
 	int status = 0;
 	char* bt = "bt";
 	char* sl = "sl";
@@ -39,22 +39,24 @@ int ds_init(struct data_struct *ds, char* sel_ds)
 		ds->structure.map_list = sl_map;
 	}
 	if (!strncmp(sel_ds, hm, 2)) {
-		hash_map = kzalloc(sizeof(struct hashtable), GFP_KERNEL);
+		hash_table = kzalloc(sizeof(struct hashtable), GFP_KERNEL);
 		last_hel = kzalloc(sizeof(struct hash_el), GFP_KERNEL);
-		hash_map->last_el = last_hel;
-		if (!hash_map)
+		hash_table->last_el = last_hel;
+		if (!hash_table)
 			goto mem_err;
-		hash_init(hash_map->head);
+
+		hash_init(hash_table->head);
 		ds->type = HASHTABLE_TYPE;
-		ds->structure.map_hash = hash_map;  
+		ds->structure.map_hash = hash_table;  
 	}
 	return 0;
 	
 mem_err:
-	pr_err("Memory allocation faile\n");
+	pr_err("Memory allocation failed\n");
 	kfree(ds);
 	kfree(root);
-	kfree(hash_map);
+	kfree(hash_table);
+	kfree(last_hel);
 	return -ENOMEM;
 }
 
@@ -75,8 +77,8 @@ void ds_free(struct data_struct *ds) {
 
 void* ds_lookup(struct data_struct *ds, sector_t *key)
 {
-	struct skiplist_node *sl_node;
-	struct hash_el *hm_node;
+	struct skiplist_node *sl_node = NULL;
+	struct hash_el *hm_node = NULL;
 
 	if (ds->type == BTREE_TYPE) {
 		return btree_lookup(ds->structure.map_tree->head, &btree_geo64, (unsigned long *)key);
@@ -103,7 +105,7 @@ void* ds_lookup(struct data_struct *ds, sector_t *key)
 
 void ds_remove(struct data_struct *ds, sector_t *key)
 {
-	struct hlist_node hm_node;
+	struct hlist_node *hm_node = NULL;
 
 	if (ds->type == BTREE_TYPE) {
 		btree_remove(ds->structure.map_tree->head, &btree_geo64, (unsigned long *)key);

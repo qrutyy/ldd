@@ -173,6 +173,9 @@ static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone
 
 insert_err:
 	pr_err("Failed inserting key: %llu vallue: %p in _\n", *original_sector, curr_rs_info);
+	kfree(original_sector);
+	kfree(redirected_sector);
+	kfree(curr_rs_info);
 	return status;
 
 mem_err:
@@ -342,10 +345,14 @@ get_err:
 	pr_err("Failed to get rs_info from get_last()/get_prev()\n");
 	kfree(curr_rs_info);
 	kfree(prev_rs_info);
+	kfree(original_sector);
 	return -ENXIO;
 
 split_err:
 	pr_err("Bio split went wrong\n");
+	kfree(curr_rs_info);
+	kfree(prev_rs_info);
+	kfree(original_sector);
 	bio_io_error(main_bio);
 	return -1;
 
@@ -353,6 +360,7 @@ mem_err:
 	pr_err("Memory allocation failed.\n");
 	kfree(prev_rs_info);
 	kfree(curr_rs_info);
+	kfree(original_sector);
 	return -ENOMEM;
 }
 
@@ -542,10 +550,8 @@ static int create_bd(int name_index)
 
 	new_disk = init_disk_bd(disk_name);
 
-	if (!new_disk) {
-		kfree(disk_name);
+	if (!new_disk)
 		goto disk_init_err;
-	}
 
 	if (list_empty(&bd_list)) {
 		pr_info("Couldn't init disk, bc list is empty\n");
@@ -574,6 +580,7 @@ mem_err:
 	return -ENOMEM;
 disk_init_err:
 	kfree(new_disk);
+	kfree(disk_name);
 	pr_err("Disk initialization failed\n");
 	return -ENOMEM;
 }
