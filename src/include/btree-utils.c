@@ -5,15 +5,7 @@
 #include <linux/cache.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>
-#include "btreeutils.h"
-
-MODULE_DESCRIPTION("Btree addon");
-MODULE_AUTHOR("Mike Gavrilenko - @qrutyy");
-MODULE_LICENSE("Dual MIT/GPL");
-
-#define LONG_PER_U64 (64 / BITS_PER_LONG)
-#define MAX_KEYLEN	(2 * LONG_PER_U64)
-
+#include "btree-utils.h"
 
 struct btree_geo {
 	int keylen;
@@ -120,7 +112,6 @@ retry:
 	node = head->node;
 	for (height = head->height ; height > 1; height--) {
 		for (i = geo->no_pairs; i > 0; i--) {
-			pr_info("node i: %lu\n", node[i * btree_geo64.keylen]);
 			if (keycmp(geo, node, i, key) >= 0)
 				break;
 		}
@@ -196,7 +187,7 @@ miss:
 	if (retry_key) {
 		longcpy(key, retry_key, geo->keylen);
 		retry_key = NULL;
-		pr_err("get_prev: key miss\n");
+		pr_err("B+Tree: get_prev: key miss\n");
 	}
 	return NULL;
 }

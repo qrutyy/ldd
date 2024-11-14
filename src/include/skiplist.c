@@ -10,12 +10,6 @@
 
 #include "skiplist.h"
 
-#define HEAD_KEY ((sector_t)0)
-#define HEAD_DATA NULL
-#define TAIL_KEY ((sector_t)U64_MAX)
-#define TAIL_DATA ((sector_t)0)
-#define MAX_LVL 20
-
 static void free_node_full(struct skiplist_node *node)
 {
 	struct skiplist_node *temp;
@@ -148,7 +142,7 @@ static int move_up_if_lvl_nex(struct skiplist *sl, int lvl)
 	diff = lvl - sl->head_lvl;
 	ret = move_head_and_tail_up(sl, diff);
 	if (ret) {
-		pr_err("failed to move head and tail up\n");
+		pr_err("Skiplist: failed to move head and tail up\n");
 		return ret;
 	}
 	sl->head_lvl = lvl;
@@ -310,60 +304,40 @@ void skiplist_print(struct skiplist *sl) {
 void skiplist_remove(struct skiplist *sl, sector_t key) {
     struct skiplist_node *curr = sl->head;
     struct skiplist_node *prev[MAX_LVL + 1];
-	// add sl check
+	// add sl check ?
     int i;
 
-    // Step 1: Traverse through the skiplist to find the nodes with the given key at each level
-    // Record the previous nodes at each level in the prev[] array.
     for (i = sl->head_lvl; i >= 0; --i) {
-		pr_info("1\n");
-        while (curr->next && curr->next->key < key) {
+		while (curr->next && curr->next->key < key) {
             curr = curr->next;
         }
-		pr_info("2\n");
-        prev[i] = curr;
-		pr_info("3\n");
 
-        if (curr->lower) {
+		prev[i] = curr;
+	
+        if (curr->lower)
             curr = curr->lower;
-        }
-		pr_info("3\n");
-
     }
 
-    // Step 2: If the node with the given key is found, remove it
     curr = prev[0]->next;
-	pr_info("4\n");
-
+	
     if (curr && curr->key == key) {
-	pr_info("5\n");
-
         for (i = 0; i <= sl->head_lvl; ++i) {
             if (prev[i]->next == curr) {
                 prev[i]->next = curr->next;
             }
-			pr_info("6\n");
 			curr = prev[i]->next;
-			// add kfree
-			pr_info("7\n");
-
         }
-		pr_info("8\n");
-		pr_info("8.1\n");
-        // Step 3: Update the head level if necessary
-        while (sl->head_lvl > 0 && !sl->head->next) {
-			pr_info("8\n");
+
+		while (sl->head_lvl > 0 && !sl->head->next) {
             struct skiplist_node *old_head = sl->head;
             sl->head = sl->head->lower;
             kfree(old_head);
             --sl->head_lvl;
         }
 		
-		pr_info("9\n");
         return; 
     }
 
-    // If the node with the key is not found, return NULL
     return;
 }
 

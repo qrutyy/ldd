@@ -10,6 +10,12 @@
 
 #include <linux/module.h>
 
+#define HEAD_KEY ((sector_t)0)
+#define HEAD_DATA NULL
+#define TAIL_KEY ((sector_t)U64_MAX)
+#define TAIL_DATA ((sector_t)0)
+#define MAX_LVL 20
+
 struct skiplist_node {
 	struct skiplist_node *next;
 	struct skiplist_node *lower;
