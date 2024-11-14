@@ -42,6 +42,7 @@ static struct rbtree_node *__rbtree_underlying_search(struct rb_root *root,
 {
 	struct rb_node *node;
 	pr_info("1\n");
+	pr_info("root node %p\n", root->rb_node);
 	node = root->rb_node;
 	pr_info("2\n");
 	while (node) {
@@ -120,7 +121,7 @@ struct rbtree *rbtree_init(void)
 	if (!new_tree)
 		return NULL;
 
-	new_tree->root = &(RB_ROOT);
+	new_tree->root = kzalloc(sizeof(struct rb_root), GFP_KERNEL);
 	new_tree->node_num = 0;
 	return new_tree;
 }
