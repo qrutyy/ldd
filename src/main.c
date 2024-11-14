@@ -16,7 +16,7 @@ static int bdd_major;
 char sel_ds[MAX_DS_NAME_LEN + 1];
 struct bio_set *bdd_pool;
 struct list_head bd_list;
-static const char *available_ds[] = { "bt", "sl", "hm"};
+static const char *available_ds[] = { "bt", "sl", "hm", "rb"};
 
 
 static int vector_add_bd(struct bdd_manager *current_bdev_manager)
@@ -238,7 +238,6 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 		pr_debug("Sector: %llu isnt mapped\n", *original_sector);
 	
 		if (ds_empty_check(redirect_manager->sel_data_struct)) { // ds is empty -> we're getting system BIO's
-			pr_info("1\n");
 			redirected_sector = kmalloc(sizeof(unsigned long), GFP_KERNEL);
 			if (redirected_sector == NULL)
 				goto mem_err;
@@ -246,7 +245,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 			*redirected_sector = *original_sector;
 			return 0;
 		}
-		pr_info("2\n");
+
 		last_rs = ds_last(redirect_manager->sel_data_struct, original_sector);
 		pr_debug("last_rs = %llu\n", *last_rs->redirected_sector);
 
