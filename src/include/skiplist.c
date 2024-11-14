@@ -4,9 +4,8 @@
  * 
  * Modified by Mikhail Gavrilenko on _ 
  * Changes: add remove, get_last, get_prev methods
- * Fixed some issues with remove. Modified the TAIL_DATA and data types that appear in structure.
+ * Fixed some issues with remove. Modified the TAIL_VALUE and data types that appear in structur.
  */
-
 
 #include "skiplist.h"
 
@@ -21,7 +20,7 @@ static void free_node_full(struct skiplist_node *node)
 	}
 }
 
-static struct skiplist_node *create_node_tall(sector_t key, void* data,
+static struct skiplist_node *create_node_tall(sector_t key, void* value,
 								int h)
 {
 	struct skiplist_node *last;
@@ -35,7 +34,7 @@ static struct skiplist_node *create_node_tall(sector_t key, void* data,
 			goto alloc_fail;
 
 		curr->key = key;
-		curr->data = data;
+		curr->value = value;
 		curr->lower = last;
 		last = curr;
 	}
@@ -48,9 +47,9 @@ alloc_fail:
 	return NULL;
 }
 
-static struct skiplist_node *create_node(sector_t key, void* data)
+static struct skiplist_node *create_node(sector_t key, void* value)
 {
-	return create_node_tall(key, data, 1);
+	return create_node_tall(key, value, 1);
 }
 
 struct skiplist *skiplist_init(void)
@@ -60,8 +59,8 @@ struct skiplist *skiplist_init(void)
 	struct skiplist_node *tail;
 
 	sl = kzalloc(sizeof(*sl), GFP_KERNEL);
-	head = create_node(HEAD_KEY, HEAD_DATA);
-	tail = create_node(TAIL_KEY, TAIL_DATA);
+	head = create_node(HEAD_KEY, HEAD_VALUE);
+	tail = create_node(TAIL_KEY, TAIL_VALUE);
 	if (!sl || !head || !tail)
 		goto alloc_fail;
 
@@ -102,8 +101,9 @@ static int move_head_and_tail_up(struct skiplist *sl, int lvls_up)
 	struct skiplist_node *curr;
 	struct skiplist_node *temp;
 
-	head_ext = create_node_tall(HEAD_KEY, HEAD_DATA, lvls_up);
-	tail_ext = create_node_tall(TAIL_KEY, TAIL_DATA, lvls_up);
+	head_ext = create_node_tall(HEAD_KEY, HEAD_VALUE, lvls_up);
+	tail_ext = create_node_tall(TAIL_KEY, TAIL_VALUE, lvls_up);
+	
 	if (!head_ext || !tail_ext)
 		goto alloc_fail;
 
@@ -186,7 +186,7 @@ static void get_prev_nodes(sector_t key, struct skiplist *sl,
 }
 
 static struct skiplist_node *skiplist_insert_at_lvl(sector_t key,
-		void* data, struct skiplist *sl, int lvl)
+		void* value, struct skiplist *sl, int lvl)
 {
 	struct skiplist_node *prev[MAX_LVL+1];
 	struct skiplist_node *new;
@@ -196,7 +196,7 @@ static struct skiplist_node *skiplist_insert_at_lvl(sector_t key,
 	get_prev_nodes(key, sl, prev, lvl);
 	temp = NULL;
 	for (i = 0; i <= lvl; ++i) {
-		new = create_node(key, data);
+		new = create_node(key, value);
 		if (!new)
 			goto fail;
 		new->next = prev[i]->next;
@@ -216,7 +216,7 @@ fail:
 	return ERR_PTR(-ENOMEM);
 }
 
-struct skiplist_node *skiplist_add(struct skiplist *sl, sector_t key, void* data)
+struct skiplist_node *skiplist_add(struct skiplist *sl, sector_t key, void* value)
 {
 	struct skiplist_node *old;
 	struct skiplist_node *new;
@@ -232,7 +232,7 @@ struct skiplist_node *skiplist_add(struct skiplist *sl, sector_t key, void* data
 	if (err)
 		goto fail;
 
-	new = skiplist_insert_at_lvl(key, data, sl, lvl);
+	new = skiplist_insert_at_lvl(key, value, sl, lvl);
 	if (IS_ERR(new))
 		goto fail;
 
@@ -286,12 +286,12 @@ void skiplist_print(struct skiplist *sl) {
 	while (head) {
 		curr = head;
 		while (curr) {
-			if (curr->key == HEAD_KEY && curr->data == HEAD_DATA)
+			if (curr->key == HEAD_KEY && curr->value == HEAD_VALUE)
 				printk(KERN_CONT "head->");
-			else if (curr->key == TAIL_KEY && curr->data == TAIL_DATA)
+			else if (curr->key == TAIL_KEY && curr->value == TAIL_VALUE)
 				printk(KERN_CONT "tail->");
 			else
-				printk(KERN_CONT "(%llu-%p)->", curr->key, curr->data);
+				printk(KERN_CONT "(%llu-%p)->", curr->key, curr->value);
 
 			curr = curr->next;
 		}
