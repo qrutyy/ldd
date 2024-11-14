@@ -4,18 +4,29 @@
 
 #include <linux/types.h>
 
+#define CHECK_FOR_NULL(node)                      \
+	if (!node)									  \
+		return NULL;							  \
+
+#define CHECK_VALUE_AND_RETURN(node)               \
+	if (node->value)					   \
+		return node->value;                        \
+
+
 enum data_type {
 	BTREE_TYPE,
     SKIPLIST_TYPE,
-	HASHTABLE_TYPE
+	HASHTABLE_TYPE,
+	RBTREE_TYPE
 };
 
 struct data_struct {
 	enum data_type type;
 	union {
-        struct btree *map_tree;
+        struct btree *map_btree;
         struct skiplist *map_list;
 		struct hashtable *map_hash;
+		struct rbtree *map_rbtree;
     } structure;
 };
 
