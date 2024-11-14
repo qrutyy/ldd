@@ -104,6 +104,10 @@ static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone
 	if (!(redirected_sector && curr_rs_info && original_sector))
 		goto mem_err; 
 
+	redirected_sector = kmalloc(sizeof(uint64_t), GFP_KERNEL);
+	if (redirected_sector == NULL) 
+		goto mem_err;
+
 	if (main_bio->bi_iter.bi_sector == 0)
 		*original_sector = SECTOR_OFFSET;
 	else
@@ -126,6 +130,7 @@ static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone
 
 	if (old_mapped_rs_info &&
 		old_mapped_rs_info->redirected_sector != redirected_sector) {
+		pr_info("entered\n");
 		ds_remove(current_redirect_manager->sel_data_struct, original_sector);
 	}
 
@@ -233,6 +238,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 		pr_debug("Sector: %llu isnt mapped\n", *original_sector);
 	
 		if (ds_empty_check(redirect_manager->sel_data_struct)) { // ds is empty -> we're getting system BIO's
+			pr_info("1\n");
 			redirected_sector = kmalloc(sizeof(unsigned long), GFP_KERNEL);
 			if (redirected_sector == NULL)
 				goto mem_err;
@@ -240,7 +246,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 			*redirected_sector = *original_sector;
 			return 0;
 		}
-
+		pr_info("2\n");
 		last_rs = ds_last(redirect_manager->sel_data_struct, original_sector);
 		pr_debug("last_rs = %llu\n", *last_rs->redirected_sector);
 
