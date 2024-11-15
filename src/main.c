@@ -128,9 +128,7 @@ static int setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone
 	pr_debug("Old rs %p", old_mapped_rs_info);
 	pr_info("WRITE: key: %llu, sec: %llu\n", *original_sector, *curr_rs_info->redirected_sector);
 
-	if (old_mapped_rs_info &&
-		old_mapped_rs_info->redirected_sector != redirected_sector) {
-		pr_info("entered\n");
+	if (old_mapped_rs_info && old_mapped_rs_info->redirected_sector != redirected_sector) {
 		ds_remove(current_redirect_manager->sel_data_struct, original_sector);
 	}
 
@@ -231,6 +229,7 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 
 	*original_sector = SECTOR_OFFSET + main_bio->bi_iter.bi_sector;
 	curr_rs_info = ds_lookup(redirect_manager->sel_data_struct, original_sector);
+	pr_info("curr_rs_info = %p\n", curr_rs_info);
 
 	pr_info("READ: key: %llu\n", *original_sector);
 
@@ -260,7 +259,6 @@ static int setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 		}
 		
 		prev_rs_info = ds_prev(redirect_manager->sel_data_struct, original_sector);
-
 		clone_bio->bi_iter.bi_sector = *original_sector;
 		to_read_in_clone = (*original_sector * 512 + main_bio->bi_iter.bi_size) - (*prev_rs_info->redirected_sector * 512 + prev_rs_info->block_size);
 		/* Address of main block end (reading fr:om original sector -> bi_size) -  First address of written blocks after original_sector */

@@ -11,7 +11,7 @@ struct rbtree_node {
 };
 
 struct rbtree {
-	struct rb_root *root;
+	struct rb_root root;
 	uint64_t node_num;
 // 	struct rbtree_node *last_el; can be added in future
 };

@@ -15,7 +15,7 @@ static struct rbtree_node *create_rbtree_node(sector_t key, void* value)
 {
 	struct rbtree_node *node;
 
-	node = kzalloc(sizeof(*node), GFP_KERNEL);
+	node = kzalloc(sizeof(struct rbtree_node ), GFP_KERNEL);
 	if (!node)
 		return NULL;
 	node->key = key;
@@ -41,32 +41,32 @@ static struct rbtree_node *__rbtree_underlying_search(struct rb_root *root,
 							 sector_t key)
 {
 	struct rb_node *node;
-	pr_info("1\n");
-	pr_info("root node %p\n", root->rb_node);
 	node = root->rb_node;
-	pr_info("2\n");
+	pr_info("1\n");
 	while (node) {
 		struct rbtree_node *data =
 			container_of(node, struct rbtree_node, node);
-		pr_info("3\n");
-		pr_info("data %p\n", data);
-		pr_info("key = %llu data key = %llu\n", key, data->key);
+		pr_info("%llu \n ", data->key);
 		int result = compare_keys(key, data->key);
-		pr_info("4\n");
+		pr_info("2\n");
 		if (result == -5)
 			return NULL;
+		pr_info("3\n");
+		pr_info("result = %d rb_right %p rb_left %p \n", result, node->rb_right, node->rb_left);
+		pr_info("root = %p\n", root);
 		if (result < 0 && node->rb_left) {
 			node = node->rb_left;
-			pr_info("5\n");
+			pr_info("4\n");
 		}
+
 		else if (result > 0 && node->rb_right) {
 			node = node->rb_right;
-			pr_info("6\n");
+			pr_info("5\n");
 		}
 		else
 			return data;
 	}
-	pr_info("1\n");
+	pr_info("10\n");
 	return NULL;
 }
 
@@ -117,11 +117,11 @@ struct rbtree *rbtree_init(void)
 {
 	struct rbtree *new_tree;
 
-	new_tree = kzalloc(sizeof(*new_tree), GFP_KERNEL);
+	new_tree = kzalloc(sizeof(struct rbtree), GFP_KERNEL);
 	if (!new_tree)
 		return NULL;
 
-	new_tree->root = kzalloc(sizeof(struct rb_root), GFP_KERNEL);
+	new_tree->root = RB_ROOT;
 	new_tree->node_num = 0;
 	return new_tree;
 }
@@ -132,7 +132,7 @@ void rbtree_free(struct rbtree *rbt)
 		return;
 
 	struct rbtree_node *pos, *node;
-	rbtree_postorder_for_each_entry_safe(pos, node, rbt->root, node) {
+	rbtree_postorder_for_each_entry_safe(pos, node, &(rbt->root), node)	  {
 		free_rbtree_node(pos);
 	}
 	kfree(rbt);
@@ -142,9 +142,9 @@ void rbtree_remove(struct rbtree *rbt, sector_t key)
 {
 	struct rbtree_node *data;
 
-	data = __rbtree_underlying_search(rbt->root, key);
+	data = __rbtree_underlying_search(&(rbt->root), key);
 	if (data) {
-		rb_erase(&(data->node), rbt->root);
+		rb_erase(&(data->node), &(rbt->root));
 		free_rbtree_node(data);
 	}
 	rbt->node_num--;
@@ -152,20 +152,20 @@ void rbtree_remove(struct rbtree *rbt, sector_t key)
 
 void rbtree_add(struct rbtree *rbt, sector_t key, void* value)
 {
-	__rbtree_underlying_insert(rbt->root, key, value);
+	__rbtree_underlying_insert(&(rbt->root), key, value);
 	rbt->node_num++;
 }
 
 struct rbtree_node *rbtree_find_node(struct rbtree *rbt, sector_t key)
 {
 	struct rbtree_node *target;
-	pr_debug("searching %llu\n", key);
-	target = __rbtree_underlying_search(rbt->root, key);
+	target = __rbtree_underlying_search(&(rbt->root), key);
 	return target;
 }
 
 struct rbtree_node *rbtree_last(struct rbtree *rbt) {
-    struct rb_node *node = rbt->root->rb_node;
+	struct rb_root root = rbt->root;
+    struct rb_node *node = root.rb_node;
 
 	if (!node)
         return NULL; 
@@ -191,7 +191,8 @@ struct rbtree_node *rbtree_last(struct rbtree *rbt) {
 
 struct rbtree_node *rbtree_prev(struct rbtree *rbt, sector_t key) {
     struct rbtree_node *curr;
-	curr = __rbtree_underlying_search(rbt->root, key);
+	struct rb_root root = rbt->root;
+	curr = __rbtree_underlying_search(&root, key);
     if (!curr)
         return NULL;  
 
@@ -204,7 +205,7 @@ struct rbtree_node *rbtree_prev(struct rbtree *rbt, sector_t key) {
         return container_of(node, struct rbtree_node, node);
     }
 
-    struct rb_node *ancestor = rbt->root->rb_node;
+    struct rb_node *ancestor = root.rb_node;
     struct rbtree_node *prev = NULL;
 
     while (ancestor) {

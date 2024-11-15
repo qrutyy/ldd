@@ -114,6 +114,7 @@ void* ds_lookup(struct data_struct *ds, sector_t *key)
 	if (ds->type == RBTREE_TYPE) {
 		rb_node = rbtree_find_node(ds->structure.map_rbtree, *key);
 		CHECK_FOR_NULL(rb_node);
+		pr_info("Found key(%llu) = %llu value = %p \n", *key, rb_node->key, rb_node->value);
 		CHECK_VALUE_AND_RETURN(rb_node);
 	}
 
@@ -163,6 +164,7 @@ int ds_insert(struct data_struct *ds, sector_t *key, void* value)
 	}
 	if (ds->type == RBTREE_TYPE) {
 		rbtree_add(ds->structure.map_rbtree, *key, value);
+		pr_info("Inserted key = %llu value = %p \n", *key, value);
 	}
 	return 0;
 
