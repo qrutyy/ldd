@@ -11,7 +11,7 @@ int ds_init(struct data_struct *ds, char* sel_ds)
 	struct btree *btree_map = NULL;
 	struct btree_head *root = NULL;
 	struct hashtable *hash_table = NULL; 
-	struct rbtree *rbtree_map;
+	struct rbtree *rbtree_map = NULL;
 	struct hash_el *last_hel = NULL;
 	int status = 0;
 	char* bt = "bt";
@@ -54,6 +54,7 @@ int ds_init(struct data_struct *ds, char* sel_ds)
 		ds->structure.map_hash->nf_bck = 0;
 	}
 	else if (!strncmp(sel_ds, rb, 2)) {
+		rbtree_map = kzalloc(sizeof(struct rbtree), GFP_KERNEL);
 		rbtree_map = rbtree_init();
 		ds->type = RBTREE_TYPE;
 		ds->structure.map_rbtree = rbtree_map;	
@@ -114,7 +115,6 @@ void* ds_lookup(struct data_struct *ds, sector_t *key)
 	if (ds->type == RBTREE_TYPE) {
 		rb_node = rbtree_find_node(ds->structure.map_rbtree, *key);
 		CHECK_FOR_NULL(rb_node);
-		pr_info("Found key(%llu) = %llu value = %p \n", *key, rb_node->key, rb_node->value);
 		CHECK_VALUE_AND_RETURN(rb_node);
 	}
 
@@ -124,7 +124,7 @@ void* ds_lookup(struct data_struct *ds, sector_t *key)
 
 void ds_remove(struct data_struct *ds, sector_t *key)
 {
-	struct hlist_node hm_node;
+	struct hlist_node hm_node = NULL;
 
 	if (ds->type == BTREE_TYPE) {
 		btree_remove(ds->structure.map_btree->head, &btree_geo64, (unsigned long *)key);
@@ -143,7 +143,8 @@ void ds_remove(struct data_struct *ds, sector_t *key)
 
 int ds_insert(struct data_struct *ds, sector_t *key, void* value)
 {
-	struct hash_el *el;
+	struct hash_el *el = NULL;
+
 	if (ds->type == BTREE_TYPE) {
 		return btree_insert(ds->structure.map_btree->head, &btree_geo64, (unsigned long *)key, value, GFP_KERNEL);
 	}
