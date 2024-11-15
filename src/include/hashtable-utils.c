@@ -5,17 +5,21 @@
 #include <linux/slab.h>
 
 
-void hash_add_cs(struct hlist_head *hm_head, struct hlist_node *node, sector_t key) {
-	hlist_add_head(node, &hm_head[hash_min(BUCKET_NUM, HT_MAP_BITS)]);
+void hash_insert(struct hashtable *hm, struct hlist_node *node, sector_t key) {
+	hlist_add_head(node, &hm->head[hash_min(BUCKET_NUM, HT_MAP_BITS)]);
+	hm->nf_bck = BUCKET_NUM;
 }
 
 void hashtable_free(struct hashtable *hm) {
 	int bckt_iter = 0;
 	struct hash_el *el;
-	hash_for_each(hm->head, bckt_iter, el, node)
-		if (el != NULL) {
+	struct hlist_node *tmp;
+
+	hash_for_each_safe(hm->head, bckt_iter, tmp, el, node) {
+		if (el) {
 			hash_del(&el->node);
 			kfree(el);
+		}
 	}
 	kfree(hm->last_el);
 	kfree(hm);
@@ -45,7 +49,7 @@ struct hash_el* hashtable_prev(struct hashtable *hm, sector_t key) {
 	if (prev_max_node->key == 0) {
 		pr_debug("Hashtable: Element with  is in the prev bucket\n");
 		// mb execute rexursively key + mb_size
-		hlist_for_each_entry(el, &hm->head[hash_min(BUCKET_NUM + 1, HT_MAP_BITS)], node) {
+		hlist_for_each_entry(el, &hm->head[hash_min(min(BUCKET_NUM - 1, hm->nf_bck), HT_MAP_BITS)], node) {
 			if (el && el->key <= key && el->key > prev_max_node->key) {
 				prev_max_node = el;
 			}

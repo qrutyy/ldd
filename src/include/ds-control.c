@@ -50,7 +50,8 @@ int ds_init(struct data_struct *ds, char* sel_ds)
 
 		hash_init(hash_table->head);
 		ds->type = HASHTABLE_TYPE;
-		ds->structure.map_hash = hash_table;  
+		ds->structure.map_hash = hash_table;
+		ds->structure.map_hash->nf_bck = 0;
 	}
 	else if (!strncmp(sel_ds, rb, 2)) {
 		rbtree_map = rbtree_init();
@@ -155,7 +156,7 @@ int ds_insert(struct data_struct *ds, sector_t *key, void* value)
 
 		el->key = *key;
 		el->value = value;
-		hash_add_cs(ds->structure.map_hash->head, &el->node, *key);
+		hash_insert(ds->structure.map_hash, &el->node, *key);
 		if (ds->structure.map_hash->last_el->key < *key) {
 			ds->structure.map_hash->last_el = el;
 		}
