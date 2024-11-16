@@ -1,15 +1,16 @@
-/* SPDX-License-Identifier: GPL-2.0-only
- *
+// SPDX-License-Identifier: GPL-2.0-only
+
+/*
  * Originail author: Daniel Vlasenco @spisladqo
- * 
- * Modified by Mikhail Gavrilenko on _ 
+ *
+ * Modified by Mikhail Gavrilenko on 15.11.24
  * Changes: add remove, get_last, get_prev methods
  * Fixed some issues with remove. Modified the TAIL_VALUE and data types that appear in structur.
  */
 
 #include "skiplist.h"
 
-static void free_node_full(struct skiplist_node *node)
+static void *free_node_full(struct skiplist_node *node)
 {
 	struct skiplist_node *temp;
 
@@ -20,7 +21,7 @@ static void free_node_full(struct skiplist_node *node)
 	}
 }
 
-static struct skiplist_node *create_node_tall(sector_t key, void* value,
+static struct skiplist_node *create_node_tall(sector_t key, void **value,
 								int h)
 {
 	struct skiplist_node *last;
@@ -47,7 +48,7 @@ alloc_fail:
 	return NULL;
 }
 
-static struct skiplist_node *create_node(sector_t key, void* value)
+static struct skiplist_node *create_node(sector_t key, void *value)
 {
 	return create_node_tall(key, value, 1);
 }
@@ -103,7 +104,7 @@ static int move_head_and_tail_up(struct skiplist *sl, int lvls_up)
 
 	head_ext = create_node_tall(HEAD_KEY, HEAD_VALUE, lvls_up);
 	tail_ext = create_node_tall(TAIL_KEY, TAIL_VALUE, lvls_up);
-	
+
 	if (!head_ext || !tail_ext)
 		goto alloc_fail;
 
@@ -127,7 +128,7 @@ static int move_head_and_tail_up(struct skiplist *sl, int lvls_up)
 alloc_fail:
 	free_node_full(head_ext);
 	free_node_full(tail_ext);
-	
+
 	return -ENOMEM;
 }
 
@@ -155,7 +156,8 @@ static int flip_coin(void)
 	return get_random_u8() % 2;
 }
 
-static int get_random_lvl(int max) {
+static int get_random_lvl(int max)
+{
 	int lvl = 0;
 
 	while ((lvl < max) && flip_coin())
@@ -164,7 +166,7 @@ static int get_random_lvl(int max) {
 	return lvl;
 }
 
-static void get_prev_nodes(sector_t key, struct skiplist *sl,
+static void *get_prev_nodes(sector_t key, struct skiplist *sl,
 			struct skiplist_node **buf, int lvl)
 {
 	struct skiplist_node *curr;
@@ -176,9 +178,8 @@ static void get_prev_nodes(sector_t key, struct skiplist *sl,
 		if (curr->next->key < key) {
 			curr = curr->next;
 		} else {
-			if (curr_lvl <= lvl) {
+			if (curr_lvl <= lvl)
 				buf[curr_lvl] = curr;
-			}
 			--curr_lvl;
 			curr = curr->lower;
 		}
@@ -186,7 +187,7 @@ static void get_prev_nodes(sector_t key, struct skiplist *sl,
 }
 
 static struct skiplist_node *skiplist_insert_at_lvl(sector_t key,
-		void* value, struct skiplist *sl, int lvl)
+		void *value, struct skiplist *sl, int lvl)
 {
 	struct skiplist_node *prev[MAX_LVL+1];
 	struct skiplist_node *new;
@@ -216,7 +217,7 @@ fail:
 	return ERR_PTR(-ENOMEM);
 }
 
-struct skiplist_node *skiplist_add(struct skiplist *sl, sector_t key, void* value)
+struct skiplist_node *skiplist_add(struct skiplist *sl, sector_t key, void *value)
 {
 	struct skiplist_node *old;
 	struct skiplist_node *new;
@@ -242,7 +243,7 @@ fail:
 	return ERR_PTR(err);
 }
 
-void skiplist_free(struct skiplist *sl)
+void *skiplist_free(struct skiplist *sl)
 {
 	struct skiplist_node *curr;
 	struct skiplist_node *next;
@@ -278,7 +279,8 @@ void skiplist_free(struct skiplist *sl)
 	kfree(sl);
 }
 
-void skiplist_print(struct skiplist *sl) {
+void *skiplist_print(struct skiplist *sl)
+{
 	struct skiplist_node *curr;
 	struct skiplist_node *head;
 
@@ -295,80 +297,78 @@ void skiplist_print(struct skiplist *sl) {
 
 			curr = curr->next;
 		}
-		printk("\n");
+		printk(KERN_CONT "\n");
 		head = head->lower;
 	}
 }
 
 
-void skiplist_remove(struct skiplist *sl, sector_t key) {
-    struct skiplist_node *curr = sl->head;
-    struct skiplist_node *prev[MAX_LVL + 1];
-	// add sl check ?
-    int i;
+void *skiplist_remove(struct skiplist *sl, sector_t key)
+{
+	if (!(sl && sl->head))
+		return NULL;
 
-    for (i = sl->head_lvl; i >= 0; --i) {
-		while (curr->next && curr->next->key < key) {
-            curr = curr->next;
-        }
+	struct skiplist_node *curr = sl->head;
+	struct skiplist_node *prev[MAX_LVL + 1];
+	int i;
+
+	for (i = sl->head_lvl; i >= 0; --i) {
+		while (curr->next && curr->next->key < key)
+			curr = curr->next;
 
 		prev[i] = curr;
-	
-        if (curr->lower)
-            curr = curr->lower;
-    }
 
-    curr = prev[0]->next;
-	
-    if (curr && curr->key == key) {
-        for (i = 0; i <= sl->head_lvl; ++i) {
-            if (prev[i]->next == curr) {
-                prev[i]->next = curr->next;
-            }
+		if (curr->lower)
+			curr = curr->lower;
+	}
+
+	curr = prev[0]->next;
+
+	if (curr && curr->key == key) {
+		for (i = 0; i <= sl->head_lvl; ++i) {
+			if (prev[i]->next == curr)
+				prev[i]->next = curr->next;
 			curr = prev[i]->next;
-        }
+		}
 
 		while (sl->head_lvl > 0 && !sl->head->next) {
-            struct skiplist_node *old_head = sl->head;
-            sl->head = sl->head->lower;
-            kfree(old_head);
-            --sl->head_lvl;
-        }
-		
-        return; 
-    }
+			struct skiplist_node *old_head = sl->head;
 
-    return;
+			sl->head = sl->head->lower;
+			kfree(old_head);
+			--sl->head_lvl;
+		}
+
+		return;
+	}
 }
 
-struct skiplist_node *skiplist_last(struct skiplist *sl) {
-    struct skiplist_node *curr = sl->head;
+struct skiplist_node *skiplist_last(struct skiplist *sl)
+{
+	struct skiplist_node *curr = sl->head;
 
-    while (curr->lower) {
-        curr = curr->lower;
-    }
+	while (curr->lower)
+		curr = curr->lower;
 
-    while (curr->next && curr->next->key && curr->next->key != TAIL_KEY) {
-        curr = curr->next;
-    }
+	while (curr->next && curr->next->key && curr->next->key != TAIL_KEY)
+		curr = curr->next;
 
-    return curr;
+	return curr;
 }
 
-struct skiplist_node *skiplist_prev(struct skiplist *sl, sector_t key) {
-    struct skiplist_node *curr = sl->head;
+struct skiplist_node *skiplist_prev(struct skiplist *sl, sector_t key)
+{
+	struct skiplist_node *curr = sl->head;
 
-    while (curr) {
-        while (curr->next && curr->next->key < key) {
-            curr = curr->next;
-        }
-        
-        if (!curr->lower) {
-            return curr;
-        }
+	while (curr) {
+		while (curr->next && curr->next->key < key)
+			curr = curr->next;
 
-        curr = curr->lower;
-    }
+		if (!curr->lower)
+			return curr;
 
-    return NULL;
+		curr = curr->lower;
+	}
+
+	return NULL;
 }

@@ -1,8 +1,9 @@
-/* SPDX-License-Identifier: GPL-2.0-only
- *
+// SPDX-License-Identifier: GPL-2.0-only
+
+/*
  * Originail author: Egor Shalashnov @egshnov
- * 
- * Modified by Mikhail Gavrilenko on 14.11.24 
+ *
+ * Modified by Mikhail Gavrilenko on 14.11.24
  * Changes: rename functions/types, add get_last and get_prev methods
  * + some refactoring and NULL initialisation.
  */
@@ -12,7 +13,7 @@
 #include <linux/types.h>
 #include "rbtree.h"
 
-static struct rbtree_node *create_rbtree_node(sector_t key, void* value)
+static struct rbtree_node *create_rbtree_node(sector_t key, void **value)
 {
 	struct rbtree_node *node = NULL;
 
@@ -25,7 +26,7 @@ static struct rbtree_node *create_rbtree_node(sector_t key, void* value)
 	return node;
 }
 
-static void free_rbtree_node(struct rbtree_node *node)
+static void *free_rbtree_node(struct rbtree_node *node)
 {
 	kfree(node->value);
 	kfree(node);
@@ -42,6 +43,7 @@ static struct rbtree_node *__rbtree_underlying_search(struct rb_root *root,
 							 sector_t key)
 {
 	struct rb_node *node = NULL;
+
 	node = root->rb_node;
 
 	while (node) {
@@ -52,14 +54,12 @@ static struct rbtree_node *__rbtree_underlying_search(struct rb_root *root,
 		if (result == -2)
 			return NULL;
 
-		pr_debug("result = %d rb_right %p rb_left %p \n", result, node->rb_right, node->rb_left);
-		if (result < 0) {
+		pr_debug("result = %d rb_right %p rb_left %p\n", result, node->rb_right, node->rb_left);
+		if (result < 0)
 			node = node->rb_left;
-		}
 
-		else if (result > 0) {
+		else if (result > 0)
 			node = node->rb_right;
-		}
 		else
 			return data;
 	}
@@ -67,7 +67,7 @@ static struct rbtree_node *__rbtree_underlying_search(struct rb_root *root,
 	return NULL;
 }
 
-static int __rbtree_underlying_insert(struct rb_root *root, sector_t key, void* value)
+static int __rbtree_underlying_insert(struct rb_root *root, sector_t key, void *value)
 {
 	bool overwrite;
 	struct rb_node **new = NULL;
@@ -123,19 +123,20 @@ struct rbtree *rbtree_init(void)
 	return new_tree;
 }
 
-void rbtree_free(struct rbtree *rbt)
+void *rbtree_free(struct rbtree *rbt)
 {
 	if (!rbt)
 		return;
 
 	struct rbtree_node *pos, *node = NULL;
-	rbtree_postorder_for_each_entry_safe(pos, node, &(rbt->root), node)	  {
+
+	rbtree_postorder_for_each_entry_safe(pos, node, &(rbt->root), node)
 		free_rbtree_node(pos);
-	}
+
 	kfree(rbt);
 }
 
-void rbtree_remove(struct rbtree *rbt, sector_t key)
+void *rbtree_remove(struct rbtree *rbt, sector_t key)
 {
 	struct rbtree_node *data = NULL;
 
@@ -149,7 +150,7 @@ void rbtree_remove(struct rbtree *rbt, sector_t key)
 	rbt->node_num--;
 }
 
-void rbtree_add(struct rbtree *rbt, sector_t key, void* value)
+void *rbtree_add(struct rbtree *rbt, sector_t key, void *value)
 {
 	__rbtree_underlying_insert(&(rbt->root), key, value);
 	rbt->node_num++;
@@ -158,65 +159,69 @@ void rbtree_add(struct rbtree *rbt, sector_t key, void* value)
 struct rbtree_node *rbtree_find_node(struct rbtree *rbt, sector_t key)
 {
 	struct rbtree_node *target = NULL;
+
 	target = __rbtree_underlying_search(&(rbt->root), key);
 	return target;
 }
 
-struct rbtree_node *rbtree_last(struct rbtree *rbt) {
+struct rbtree_node *rbtree_last(struct rbtree *rbt)
+{
 	struct rb_root root = rbt->root;
-    struct rb_node *node = root.rb_node;
+	struct rb_node *node = root.rb_node;
 
 	if (!node)
-        return NULL; 
+		return NULL;
+
 	if (!(node->rb_left && node->rb_right))
 		return NULL;
-    
+
 	struct rbtree_node *data =
 			container_of(node, struct rbtree_node, node);
-	if (!(data->key && data->value)) {
+	if (!(data->key && data->value))
 		return NULL;
-	}
-	
+
 	while (node) {
-		if (node->rb_right) {
-	        node = node->rb_right;
-		}
+		if (node->rb_right)
+			node = node->rb_right;
 		else
 			break;
 	}
-    return container_of(node, struct rbtree_node, node);
+
+	return container_of(node, struct rbtree_node, node);
 }
 
-struct rbtree_node *rbtree_prev(struct rbtree *rbt, sector_t key) {
-    struct rbtree_node *curr = NULL;
-    struct rb_root root = rbt->root;
-    
-    curr = __rbtree_underlying_search(&root, key);
-    if (!curr) {
-        struct rb_node *ancestor = root.rb_node;
-        struct rbtree_node *prev = NULL;
+struct rbtree_node *rbtree_prev(struct rbtree *rbt, sector_t key)
+{
+	struct rbtree_node *curr = NULL;
+	struct rb_root root = rbt->root;
 
-        while (ancestor) {
-            struct rbtree_node *ancestor_data = container_of(ancestor, struct rbtree_node, node);
+	curr = __rbtree_underlying_search(&root, key);
+	if (!curr) {
+		struct rb_node *ancestor = root.rb_node;
+		struct rbtree_node *prev = NULL;
 
-            if (compare_keys(ancestor_data->key, key) < 0) {
-                prev = ancestor_data;
-                ancestor = ancestor->rb_right;
-            } else {
-                ancestor = ancestor->rb_left;
-            }
-        }
+		while (ancestor) {
+			struct rbtree_node *ancestor_data = container_of(ancestor, struct rbtree_node, node);
 
-        return prev; 
-    }
+			if (compare_keys(ancestor_data->key, key) < 0) {
+				prev = ancestor_data;
+				ancestor = ancestor->rb_right;
+			} else {
+				ancestor = ancestor->rb_left;
+			}
+		}
 
-    struct rb_node *node = &curr->node;
-    if (node) {
-        node = node->rb_left;
-        while (node && node->rb_right)
-            node = node->rb_right;
-        return container_of(node, struct rbtree_node, node);
-    }
+		return prev;
+	}
 
-    return NULL;
+	struct rb_node *node = &curr->node;
+
+	if (node) {
+		node = node->rb_left;
+		while (node && node->rb_right)
+			node = node->rb_right;
+		return container_of(node, struct rbtree_node, node);
+	}
+
+	return NULL;
 }
