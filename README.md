@@ -1,5 +1,5 @@
 # LS-BDD
-LS-BDD is a block device driver that implements log-structured storage based on B+ data structure.
+LS-BDD is a block device driver that implements log-structured storage based on B+-tree, RB-tree, Skiplist and Hashtable data structures.
 Driver is based on BIO request management and supports BIO split.
 
 For more info - see [presentation v1](https://github.com/qrutyy/ls-bdd/blob/main/docs/LogStructuredStoringBasedOnB+Tree.pdf)
@@ -7,21 +7,25 @@ For more info - see [presentation v1](https://github.com/qrutyy/ls-bdd/blob/main
 ***Compatable with Linux Kernel 6.8***
 
 ## Usage
-Highly recommended to test/use the driver using a VM, to protect your data from corruption.
+Highly recommended to test/use the driver using a VM, to prevent data coruption.
+
 ### Initialisation:
 ```bash
 make
 insmod lsbdd.ko
-echo "index path" > /sys/module/bdrm/parameters/set_redirect_bd
+echo "ds_name" > /sys/module/lsbdd/parameters/set_data_structure
+echo "index path" > /sys/module/lsbdd/parameters/set_redirect_bd
 ```
+**ds_name** - one of available data structures to store the mapping ("bt", "ht", "sl", "rb")
 **index** - postfix for a 'device in the middle' (prefix is 'lsvbd'), **path** - to which block device to redirect
 
-*Can be reduced to `make`, `make ins` and `make set` *
+*2nd and 4th steps can be reduced to `make ins` and `make set`*
 
 ### Sending requests: 
 
-**Initialised f.e:**
+**Initialise example:**
 ```bash
+...
 echo "1 /dev/vdb" > /sys/module/lsbdd/parameters/set_redirect_bd
 cat /sys/module/lsbdd/parameters/get_bd_names // to get the links
 ```
@@ -43,6 +47,12 @@ For parameter description - run:
 ```
 python3 test/autotest.py -c
 ```
+
+In addition you can use the provided fio tests, that time the execution and use pattern-verify process.
+```
+fio test/fio/_
+```
+*Basic test - "ftv"*
 
 ## License
 
