@@ -74,7 +74,7 @@ def compare_files(file1, file2, block_size, count):
 
             if chunk1 != chunk2:
                 print("Files are different")
-                errors.append([file1, file2, block_size[0], count])
+                errors.append([block_size[0], count])
                 return 
 
             if not chunk1:
@@ -120,7 +120,7 @@ def run_test_files(num_files, file_size_kb, block_size_kb):
                 print(f"Completed processing file: {input_file}")
                 test_count += 1
             
-                compare_files(input_file, output_file, rw_bs, [input_size // rw_bs[0], input_size // rw_bs[1]])
+                compare_files(input_file, output_file, rw_bs, [input_size // (rw_bs[0] * 1024), input_size // (rw_bs[1] * 1024)])
         else:
             count = os.path.getsize(input_file) // (block_size_kb * 1024)
             run_dd_read_command(input_file, block_size_kb, int(count))
