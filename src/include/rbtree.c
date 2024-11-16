@@ -26,7 +26,7 @@ static struct rbtree_node *create_rbtree_node(sector_t key, void **value)
 	return node;
 }
 
-static void *free_rbtree_node(struct rbtree_node *node)
+static void free_rbtree_node(struct rbtree_node *node)
 {
 	kfree(node->value);
 	kfree(node);
@@ -123,7 +123,7 @@ struct rbtree *rbtree_init(void)
 	return new_tree;
 }
 
-void *rbtree_free(struct rbtree *rbt)
+void rbtree_free(struct rbtree *rbt)
 {
 	if (!rbt)
 		return;
@@ -136,7 +136,7 @@ void *rbtree_free(struct rbtree *rbt)
 	kfree(rbt);
 }
 
-void *rbtree_remove(struct rbtree *rbt, sector_t key)
+void rbtree_remove(struct rbtree *rbt, sector_t key)
 {
 	struct rbtree_node *data = NULL;
 
@@ -150,7 +150,7 @@ void *rbtree_remove(struct rbtree *rbt, sector_t key)
 	rbt->node_num--;
 }
 
-void *rbtree_add(struct rbtree *rbt, sector_t key, void *value)
+void rbtree_add(struct rbtree *rbt, sector_t key, void *value)
 {
 	__rbtree_underlying_insert(&(rbt->root), key, value);
 	rbt->node_num++;

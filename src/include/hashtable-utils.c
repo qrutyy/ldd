@@ -70,6 +70,6 @@ void hashtable_remove(struct hashtable *hm, sector_t key)
 {
 	struct hlist_node *hm_node = NULL;
 
-	hm_node = hashtable_find_node(ds->structure.map_hash, *key)->node;
-	hash_del(&hm_node);
+	hm_node = &hashtable_find_node(hm, key)->node;
+	hash_del(hm_node);
 }

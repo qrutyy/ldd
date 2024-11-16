@@ -10,7 +10,7 @@
 
 #include "skiplist.h"
 
-static void *free_node_full(struct skiplist_node *node)
+static void free_node_full(struct skiplist_node *node)
 {
 	struct skiplist_node *temp;
 
@@ -19,6 +19,7 @@ static void *free_node_full(struct skiplist_node *node)
 		kfree(node);
 		node = temp;
 	}
+	return;
 }
 
 static struct skiplist_node *create_node_tall(sector_t key, void **value,
@@ -166,7 +167,7 @@ static int get_random_lvl(int max)
 	return lvl;
 }
 
-static void *get_prev_nodes(sector_t key, struct skiplist *sl,
+static void get_prev_nodes(sector_t key, struct skiplist *sl,
 			struct skiplist_node **buf, int lvl)
 {
 	struct skiplist_node *curr;
@@ -243,7 +244,7 @@ fail:
 	return ERR_PTR(err);
 }
 
-void *skiplist_free(struct skiplist *sl)
+void skiplist_free(struct skiplist *sl)
 {
 	struct skiplist_node *curr;
 	struct skiplist_node *next;
@@ -279,7 +280,7 @@ void *skiplist_free(struct skiplist *sl)
 	kfree(sl);
 }
 
-void *skiplist_print(struct skiplist *sl)
+void skiplist_print(struct skiplist *sl)
 {
 	struct skiplist_node *curr;
 	struct skiplist_node *head;
@@ -303,10 +304,10 @@ void *skiplist_print(struct skiplist *sl)
 }
 
 
-void *skiplist_remove(struct skiplist *sl, sector_t key)
+void skiplist_remove(struct skiplist *sl, sector_t key)
 {
 	if (!(sl && sl->head))
-		return NULL;
+		return;
 
 	struct skiplist_node *curr = sl->head;
 	struct skiplist_node *prev[MAX_LVL + 1];
