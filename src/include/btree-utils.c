@@ -92,7 +92,6 @@ void *btree_last_no_rep(struct btree_head *head, struct btree_geo *geo,
 
 	return bval(geo, node, 0);
 }
-EXPORT_SYMBOL_GPL(btree_last_no_rep);
 
 void *btree_get_next(struct btree_head *head, struct btree_geo *geo,
 		     unsigned long *key)
@@ -144,7 +143,6 @@ miss:
 	}
 	return NULL;
 }
-EXPORT_SYMBOL_GPL(btree_get_next);
 
 void *btree_get_prev_no_rep(struct btree_head *head, struct btree_geo *geo,
 		     unsigned long *key)
@@ -191,4 +189,3 @@ miss:
 	}
 	return NULL;
 }
-EXPORT_SYMBOL_GPL(btree_get_prev_no_rep);
