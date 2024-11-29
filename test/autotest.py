@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 
 import argparse
 import os
@@ -146,9 +147,11 @@ def main():
     parser = argparse.ArgumentParser(description="Run tests on virtual block device using 'dd'.")
     parser.add_argument('--vbd_name', '-vbd', type=str, default="/dev/lsvbd1", help="Name of the virtual block device")
     parser.add_argument('--num_files', '-n', type=int, default=5, help="Number of test files to create")
-    parser.add_argument('--file_size_kb', '-fs', type=int, default=1024, help="Size of each test file in KB")
-    parser.add_argument('--block_size_kb', '-bs', type=int, default=0, help="Block size in KB for 'dd' operations")
-    parser.add_argument('--clear', action='store_true', help="Clear the test directory and exit")
+    parser.add_argument('--file_size_kb', '-fs', type=int, default=1024, help='Size of each test file in KB. \n '
+                             'Set to 0 for a random choice of 1 file size. \n '
+                             'Set to -1 for running all file sizes.')
+    parser.add_argument('--block_size_kb', '-bs', type=int, default=0, help='Block size for dd command in KB. \nSet to 0 for automatic selection.')
+    parser.add_argument('--clear', '-c', action='store_true', help="Clear the test directory")
     args = parser.parse_args()
 
     if args.clear:
