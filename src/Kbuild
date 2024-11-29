@@ -7,7 +7,6 @@ ccflags-y := 	-Wall					\
 		-g					\
 		-Werror=format-security			\
 		-Werror=implicit-function-declaration   \
-		-DDEBUG
 
 obj-m := lsbdd.o
 lsbdd-objs := main.o include/btree-utils.o include/skiplist.o include/ds-control.o include/hashtable-utils.o include/rbtree.o
