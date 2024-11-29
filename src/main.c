@@ -15,7 +15,7 @@ static int bdd_major;
 char sel_ds[MAX_DS_NAME_LEN + 1];
 struct bio_set *bdd_pool;
 struct list_head bd_list;
-static const char *available_ds[] = { "bt", "sl", "hm", "rb"};
+static const char *available_ds[] = { "bt", "sl", "ht", "rb"};
 
 static int vector_add_bd(struct bdd_manager *current_bdev_manager)
 {
@@ -29,8 +29,6 @@ static struct bdd_manager *get_bdd_manager_by_name(char *bd_name)
 	struct bdd_manager *entry;
 
 	list_for_each_entry(entry, &bd_list, list) {
-		pr_info("disk_name = %s\n", entry->middle_disk->disk_name);
-		pr_info("bd_name = %s\n", bd_name);
 		if (!strcmp(entry->middle_disk->disk_name,bd_name))
 			return entry;
 	}
@@ -325,7 +323,7 @@ static void lsbdd_submit_bio(struct bio *bio)
 	int16_t status;
 
 	pr_info("Entered submit bio\n");
-	pr_info("bio dn = %s\n", bio->bi_bdev->bd_disk->disk_name);
+
 	current_redirect_manager = get_bdd_manager_by_name(bio->bi_bdev->bd_disk->disk_name);
 	if (!current_redirect_manager)
 		goto get_err;
