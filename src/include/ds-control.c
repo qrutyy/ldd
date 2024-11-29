@@ -17,9 +17,10 @@ int ds_init(struct data_struct *ds, char *sel_ds)
 	struct rbtree *rbtree_map = NULL;
 	struct hash_el *last_hel = NULL;
 	int status = 0;
+
 	char *bt = "bt";
 	char *sl = "sl";
-	char *hm = "hm";
+	char *ht = "hm";
 	char *rb = "rb";
 
 	if (!strncmp(sel_ds, bt, 2)) {
@@ -42,7 +43,7 @@ int ds_init(struct data_struct *ds, char *sel_ds)
 		sl_map = skiplist_init();
 		ds->type = SKIPLIST_TYPE;
 		ds->structure.map_list = sl_map;
-	} else if (!strncmp(sel_ds, hm, 2)) {
+	} else if (!strncmp(sel_ds, ht, 2)) {
 		hash_table = kzalloc(sizeof(struct hashtable), GFP_KERNEL);
 		last_hel = kzalloc(sizeof(struct hash_el), GFP_KERNEL);
 		hash_table->last_el = last_hel;
@@ -96,7 +97,7 @@ void ds_free(struct data_struct *ds)
 void *ds_lookup(struct data_struct *ds, sector_t *key)
 {
 	struct skiplist_node *sl_node = NULL;
-	struct hash_el *hm_node = NULL;
+	struct hash_el *ht_node = NULL;
 	struct rbtree_node *rb_node = NULL;
 
 	if (ds->type == BTREE_TYPE)
@@ -107,9 +108,17 @@ void *ds_lookup(struct data_struct *ds, sector_t *key)
 		CHECK_VALUE_AND_RETURN(sl_node);
 	}
 	if (ds->type == HASHTABLE_TYPE) {
-		hm_node = hashtable_find_node(ds->structure.map_hash, *key);
-		CHECK_FOR_NULL(hm_node);
-		CHECK_VALUE_AND_RETURN(hm_node);
+		ht_node = hashtable_find_node(ds->structure.map_hash, *key);
+		CHECK_FOR_NULL(ht_node);
+		CHECK_VALUE_AND_RETURN(ht_node);
+	}
+	if (ds->type == RBTREE_TYPE) {
+		rb_node = rbtree_find_node(ds->structure.map_rbtree, *key);
+		CHECK_FOR_NULL(rb_node);
+		CHECK_VALUE_AND_RETURN(rb_node);
+	}
+
+		return hm_node->value;
 	}
 	if (ds->type == RBTREE_TYPE) {
 		rb_node = rbtree_find_node(ds->structure.map_rbtree, *key);
@@ -164,7 +173,7 @@ mem_err:
 
 void *ds_last(struct data_struct *ds, sector_t *key)
 {
-	struct hash_el *hm_node = NULL;
+	struct hash_el *ht_node = NULL;
 	struct skiplist_node *sl_node = NULL;
 	struct rbtree_node *rb_node = NULL;
 
@@ -176,9 +185,9 @@ void *ds_last(struct data_struct *ds, sector_t *key)
 		CHECK_VALUE_AND_RETURN(sl_node);
 	}
 	if (ds->type == HASHTABLE_TYPE) {
-		hm_node = ds->structure.map_hash->last_el;
-		CHECK_FOR_NULL(hm_node);
-		CHECK_VALUE_AND_RETURN(hm_node);
+		ht_node = ds->structure.map_hash->last_el;
+		CHECK_FOR_NULL(ht_node);
+		CHECK_VALUE_AND_RETURN(ht_node);
 	}
 	if (ds->type == RBTREE_TYPE) {
 		rb_node = rbtree_last(ds->structure.map_rbtree);
@@ -192,7 +201,7 @@ void *ds_last(struct data_struct *ds, sector_t *key)
 void *ds_prev(struct data_struct *ds, sector_t *key)
 {
 	struct skiplist_node *sl_node = NULL;
-	struct hash_el *hm_node = NULL;
+	struct hash_el *ht_node = NULL;
 	struct rbtree_node *rb_node = NULL;
 
 	if (ds->type == BTREE_TYPE)
@@ -203,9 +212,9 @@ void *ds_prev(struct data_struct *ds, sector_t *key)
 		CHECK_VALUE_AND_RETURN(sl_node);
 	}
 	if (ds->type == HASHTABLE_TYPE) {
-		hm_node = hashtable_prev(ds->structure.map_hash, *key);
-		CHECK_FOR_NULL(hm_node);
-		CHECK_VALUE_AND_RETURN(hm_node);
+		ht_node = hashtable_prev(ds->structure.map_hash, *key);
+		CHECK_FOR_NULL(ht_node);
+		CHECK_VALUE_AND_RETURN(ht_node);
 	}
 	if (ds->type == RBTREE_TYPE) {
 		rb_node = rbtree_prev(ds->structure.map_rbtree, *key);

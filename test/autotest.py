@@ -91,56 +91,11 @@ def run_tests(vbd_name, num_files, file_size_kb, block_size_kb):
     create_test_files(num_files, file_size_kb, TEST_DIR)
     block_sizes = [block_size_kb] if block_size_kb > 0 else get_even_divisors(file_size_kb)
 
-<<<<<<< HEAD
-    for i in range(1, num_files + 1):
-        input_file = os.path.join(TEST_DIR, f"in_tf_{i}_{file_size_kb}KB.txt")
-        output_file = os.path.join(TEST_DIR, f"out_tf_{i}_{file_size_kb}KB.txt")
-        print(input_file)
-
-        if block_size_kb == 0:
-            rw_pairs = list(product(get_odd_divs(file_size_kb), repeat=2))
-            for rw_bs in rw_pairs:
-                input_size = os.path.getsize(input_file)
-                run_dd_write_command(input_file, rw_bs[0], input_size // (rw_bs[0] * 1024))
-                run_dd_read_command(output_file, rw_bs[1], input_size // (rw_bs[1] * 1024))
-                print(f"Completed processing file: {input_file}")
-                test_count += 1
-            
-                compare_files(input_file, output_file, rw_bs, [input_size // (rw_bs[0] * 1024), input_size // (rw_bs[1] * 1024)])
-        else:
-            count = os.path.getsize(input_file) // (block_size_kb * 1024)
-            run_dd_read_command(input_file, block_size_kb, int(count))
-            run_dd_write_command(output_file, block_size_kb, int(count))
-            
-            compare_files(input_file, output_file, list(block_size_kb), list(count))
-       
-def proceed_run(num_files, file_size_kb, block_size_kb):
-#     prepare_driver()
-    clean_dir(TEST_DIR)
-
-    if file_size_kb == 0:
-        file_size_kb = random.choice(DEF_SUITABLE_FB)
-        run_test_files(num_files, file_size_kb, block_size_kb)
-    elif file_size_kb == -1:
-        for k in DEF_SUITABLE_FB:
-            run_test_files(num_files, k, block_size_kb)
-    else:
-        run_test_files(num_files, file_size_kb, block_size_kb)
-
-    if len(errors) != 0:
-        print(errors)
-    else:
-        print("\n\033[1mAll files are identical\033[0m")
-
-    print(f"\n\033[1mTest passed: {test_count}, Failed: {int(len(errors) / 2)}\n\033[o \n")
-    clean_dir(TEST_DIR)
-=======
     for i in range(num_files):
         input_file = os.path.join(TEST_DIR, f"in_tf_{i + 1}_{file_size_kb}KB.txt")
         output_file = os.path.join(TEST_DIR, f"out_tf_{i + 1}_{file_size_kb}KB.txt")
         process_test_file(vbd_name, input_file, output_file, block_sizes)
         test_count += 1
->>>>>>> aa59988 (test: add support for different vdb names)
 
 
 def main():
