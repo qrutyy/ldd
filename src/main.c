@@ -11,32 +11,31 @@ MODULE_DESCRIPTION("Log-Structured virtual Block Device Driver module");
 MODULE_AUTHOR("Mike Gavrilenko - @qrutyy");
 MODULE_LICENSE("Dual MIT/GPL");
 
-static int bdd_current_redirect_pair_index;
 static int bdd_major;
 char sel_ds[MAX_DS_NAME_LEN + 1];
 struct bio_set *bdd_pool;
 struct list_head bd_list;
 static const char *available_ds[] = { "bt", "sl", "hm", "rb"};
 
-
 static int vector_add_bd(struct bdd_manager *current_bdev_manager)
 {
-	list_add(&current_bdev_manager->list, &bd_list);
+	list_add_tail(&current_bdev_manager->list, &bd_list);
 
 	return 0;
 }
 
-static int check_bdd_manager_by_name(char *bd_name)
+static struct bdd_manager *get_bdd_manager_by_name(char *bd_name)
 {
 	struct bdd_manager *entry;
 
 	list_for_each_entry(entry, &bd_list, list) {
-		if (entry->middle_disk->disk_name == bd_name &&
-			entry->bdev_handler != NULL)
-			return 0;
+		pr_info("disk_name = %s\n", entry->middle_disk->disk_name);
+		pr_info("bd_name = %s\n", bd_name);
+		if (!strcmp(entry->middle_disk->disk_name,bd_name))
+			return entry;
 	}
 
-	return -1;
+	return NULL;
 }
 
 static struct bdd_manager *get_list_element_by_index(int index)
@@ -327,11 +326,18 @@ static void lsbdd_submit_bio(struct bio *bio)
 
 	pr_info("Entered submit bio\n");
 
+<<<<<<< HEAD
 	status = check_bdd_manager_by_name(bio->bi_bdev->bd_disk->disk_name);
 	if (status)
 		goto check_err;
 
 	current_redirect_manager = get_list_element_by_index(bdd_current_redirect_pair_index);
+=======
+	pr_info("bio dn = %s\n", bio->bi_bdev->bd_disk->disk_name);
+	current_redirect_manager = get_bdd_manager_by_name(bio->bi_bdev->bd_disk->disk_name);
+	if (!current_redirect_manager)
+		goto get_err;
+>>>>>>> 7f269c9 (fix: issue with multiple vbd creation)
 
 	clone = bio_alloc_clone(current_redirect_manager->bdev_handler->bdev, bio,
 							GFP_KERNEL, bdd_pool);
@@ -357,7 +363,7 @@ static void lsbdd_submit_bio(struct bio *bio)
 	pr_info("Submitted bio\n\n");
 	return;
 
-check_err:
+get_err:
 	pr_err("No such bdd_manager with middle disk %s and not empty handler\n",
 		bio->bi_bdev->bd_disk->disk_name);
 	bdd_bio_end_io(bio);
@@ -397,7 +403,7 @@ static struct gendisk *init_disk_bd(char *bd_name)
 	new_disk->first_minor = 1;
 	new_disk->minors = MAX_MINORS_AM;
 	new_disk->fops = &lsbdd_bio_ops;
-
+	
 	if (bd_name) {
 		strcpy(new_disk->disk_name, bd_name);
 	} else {
@@ -413,7 +419,6 @@ static struct gendisk *init_disk_bd(char *bd_name)
 	linked_manager = list_last_entry(&bd_list, struct bdd_manager, list);
 	set_capacity(new_disk,
 				 get_capacity(linked_manager->bdev_handler->bdev->bd_disk));
-
 	return new_disk;
 }
 
@@ -674,14 +679,17 @@ static int lsbdd_set_redirect_bd(const char *arg, const struct kernel_param *kp)
 		pr_err("Wrong input, 2 values are required\n");
 		return -EINVAL;
 	}
-
+	
 	status = check_and_open_bd(path);
+	
+	if (!list_empty(&bd_list))
+		bdd_major = register_blkdev(0, MAIN_BLKDEV_NAME);
 
 	if (status)
 		return PTR_ERR(&status);
 
 	status = ds_init(list_last_entry(&bd_list, struct bdd_manager, list)->sel_data_struct, sel_ds);
-
+	pr_info("%p\n", list_last_entry(&bd_list, struct bdd_manager, list)->sel_data_struct);	
 	if (status)
 		return status;
 
