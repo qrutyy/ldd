@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
+# SPDX-License-Identifier: GPL-2.0-only
 
 import argparse
 import os
@@ -18,9 +18,9 @@ def get_even_divisors(n):
     divisors = set()
     for i in range(2, int(n**0.5) + 1):
         if n % i == 0:
-            if i % 2 == 0:
+            if i % 2 == 0 and i < 32:
                 divisors.add(i)
-            if (n // i) % 2 == 0:
+            if (n // i) % 2 == 0 and (n // i) < 32:
                 divisors.add(n // i)
     return divisors
 
@@ -75,6 +75,7 @@ def run_dd_command(command):
         print(f"Error executing command: {e}")
 
 def process_test_file(vbd_name, input_file, output_file, block_sizes):
+    global test_count
     file_size = os.path.getsize(input_file)
     for write_bs, read_bs in product(block_sizes, repeat=2):
         write_count = file_size // (write_bs * 1024)
@@ -82,20 +83,25 @@ def process_test_file(vbd_name, input_file, output_file, block_sizes):
 
         run_dd_command(f"dd if={input_file} of=/dev/{vbd_name} oflag=direct bs={write_bs}k count={write_count}")
         run_dd_command(f"dd if=/dev/{vbd_name} of={output_file} iflag=direct bs={read_bs}k count={read_count}")
+        
+        test_count+=1
 
         if not compare_files(input_file, output_file):
             errors.append((write_bs, read_bs))
 
 def run_tests(vbd_name, num_files, file_size_kb, block_size_kb):
-    global test_count
-    create_test_files(num_files, file_size_kb, TEST_DIR)
+    if file_size_kb == -1:
+        for size in DEFAULT_SUITABLE_FILE_SIZES:        
+            create_test_files(num_files, file_size_kb, TEST_DIR)
+    else:
+        create_test_files(num_files, file_size_kb, TEST_DIR)
+
     block_sizes = [block_size_kb] if block_size_kb > 0 else get_even_divisors(file_size_kb)
 
     for i in range(num_files):
         input_file = os.path.join(TEST_DIR, f"in_tf_{i + 1}_{file_size_kb}KB.txt")
         output_file = os.path.join(TEST_DIR, f"out_tf_{i + 1}_{file_size_kb}KB.txt")
         process_test_file(vbd_name, input_file, output_file, block_sizes)
-        test_count += 1
 
 
 def main():
@@ -120,7 +126,7 @@ def main():
         if errors:
             print("Errors encountered in the following tests:", errors)
         else:
-            print("All tests passed successfully!")
+            print(f"All tests ({test_count})passed successfully!")
         clean_directory(TEST_DIR)
 
 if __name__ == "__main__":
