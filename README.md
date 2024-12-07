@@ -41,7 +41,7 @@ dd of=test2.txt if=/dev/lsvbd1 iflag=direct bs=4K count=10;
 ### Testing
 After making some changes you can check a lot of obvious cases using auto-tests:
 ```
-python3 test/autotest.py -n=5 -fs=-1 -bs=0
+python3 test/autotest.py -vdb="lsvbd1" -n=5 -fs=-1 -bs=0
 ```
 For parameter description - run:
 ```
@@ -52,7 +52,7 @@ In addition you can use the provided fio tests, that time the execution and use 
 ```
 fio test/fio/_
 ```
-*Basic test - "ftv"*
+*Basic test - "ftv_4_8/ftv_8_4"*
 
 ## License
 
