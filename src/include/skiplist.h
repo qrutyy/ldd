@@ -25,8 +25,8 @@ struct skiplist_node {
 
 struct skiplist {
 	struct skiplist_node *head;
-	int head_lvl;
-	int max_lvl;
+	s32 head_lvl;
+	s32 max_lvl;
 };
 
 struct skiplist *skiplist_init(void);

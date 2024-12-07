@@ -9,7 +9,7 @@
 struct hashtable {
 	DECLARE_HASHTABLE(head, HT_MAP_BITS);
 	struct hash_el *last_el;
-	uint8_t nf_bck;
+	u8 nf_bck;
 };
 
 struct hash_el {
