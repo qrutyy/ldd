@@ -31,10 +31,10 @@ struct data_struct {
 
 int ds_init(struct data_struct *ds, char *sel_ds);
 void ds_free(struct data_struct *ds);
-void *ds_lookup(struct data_struct *ds, sector_t *key);
-void ds_remove(struct data_struct *ds, sector_t *key);
-int ds_insert(struct data_struct *ds, sector_t *key, void *value);
-void *ds_last(struct data_struct *ds, sector_t *key);
-void *ds_prev(struct data_struct *ds, sector_t *key);
+void *ds_lookup(struct data_struct *ds, sector_t key);
+void ds_remove(struct data_struct *ds, sector_t key);
+int ds_insert(struct data_struct *ds, sector_t key, void *value);
+void *ds_last(struct data_struct *ds, sector_t key);
+void *ds_prev(struct data_struct *ds, sector_t key);
 int ds_empty_check(struct data_struct *ds);
 

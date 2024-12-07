@@ -14,7 +14,7 @@ void hash_insert(struct hashtable *ht, struct hlist_node *node, sector_t key)
 
 void hashtable_free(struct hashtable *ht)
 {
-	int bckt_iter = 0;
+	s32 bckt_iter = 0;
 	struct hash_el *el;
 	struct hlist_node *tmp;
 
@@ -53,8 +53,8 @@ struct hash_el *hashtable_prev(struct hashtable *ht, sector_t key)
 
 	if (prev_max_node->key == 0) {
 		pr_debug("Hashtable: Element with  is in the prev bucket\n");
-		// mb execute rexursively key + mb_size
-		hlist_for_each_entry(el, &ht->head[hash_min(min(BUCKET_NUM - 1, hm->nf_bck), HT_MAP_BITS)], node) {
+		// mb execute recursively key + mb_size
+		hlist_for_each_entry(el, &ht->head[hash_min(min(BUCKET_NUM - 1, ht->nf_bck), HT_MAP_BITS)], node) {
 			if (el && el->key <= key && el->key > prev_max_node->key)
 				prev_max_node = el;
 			pr_debug("Hashtable: prev el key = %llu\n", el->key);
@@ -75,6 +75,6 @@ void hashtable_remove(struct hashtable *ht, sector_t key)
 {
 	struct hlist_node *ht_node = NULL;
 
-	ht_node = &hashtable_find_node(hm, key)->node;
+	ht_node = &hashtable_find_node(ht, key)->node;
 	hash_del(ht_node);
 }
