@@ -29,7 +29,7 @@ static struct bdd_manager *get_bdd_manager_by_name(char *bd_name)
 	struct bdd_manager *entry;
 
 	list_for_each_entry(entry, &bd_list, list) {
-		if (!strcmp(entry->middle_disk->disk_name,bd_name))
+		if (!strcmp(entry->middle_disk->disk_name, bd_name))
 			return entry;
 	}
 
@@ -57,12 +57,12 @@ static s8 convert_to_int(const char *arg, u8 *result)
 
 	if (res != 0)
 		return res;
-	
+
 	if (number < 0 || number > 255)
-        return -ERANGE;
-	
+		return -ERANGE;
+
 	*result = (u8)number;
-	return 0 ;
+	return 0;
 }
 
 static struct bdev_handle *open_bd_on_rw(char *bd_path)
@@ -178,11 +178,11 @@ static s32 setup_bio_split(struct bio *clone_bio, struct bio *main_bio, s32 near
  * Identifies and handles system BIOs for the given BIO operation.
  *
  * This function checks whether the specified BIO corresponds to a system-level operation.
- * It determines this by inspecting the state of the selected data structure (DS) and 
+ * It determines this by inspecting the state of the selected data structure (DS) and
  * comparing the original sector to the redirection mappings stored in the DS.
  *
- * If the data structure is empty, or if the original sector is larger than the last 
- * redirected sector, the BIO is marked as a system BIO by setting its sector to the 
+ * If the data structure is empty, or if the original sector is larger than the last
+ * redirected sector, the BIO is marked as a system BIO by setting its sector to the
  * original value. Otherwise, the BIO is treated as a redirected operation.
  *
  * @redirect_manager: Manager holding information about the redirection state
@@ -194,9 +194,10 @@ static s32 setup_bio_split(struct bio *clone_bio, struct bio *main_bio, s32 near
  * - -1 if the BIO is identified as a system BIO.
  * - 0 if the BIO is redirected or otherwise successfully processed.
  */
-static s16 check_system_bio(struct bdd_manager *redirect_manager, struct sectors *sectors, struct bio *bio) {
+static s16 check_system_bio(struct bdd_manager *redirect_manager, struct sectors *sectors, struct bio *bio)
+{
 	struct redir_sector_info *last_rs = NULL;
-	
+
 	if (ds_empty_check(redirect_manager->sel_data_struct)) {
 		bio->bi_iter.bi_sector = sectors->original;
 		return -1;
@@ -249,7 +250,7 @@ static s32 setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 	curr_rs_info = ds_lookup(redirect_manager->sel_data_struct, sectors->original);
 
 	pr_info("READ: key: %llu\n", sectors->original);
-	
+
 	if (!curr_rs_info) { // Read & Write sector starts aren't equal.
 		status = check_system_bio(redirect_manager, sectors, clone_bio);
 		if (status)
@@ -259,7 +260,7 @@ static s32 setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 
 		prev_rs_info = ds_prev(redirect_manager->sel_data_struct, sectors->original);
 		clone_bio->bi_iter.bi_sector = sectors->original;
-		
+
 		to_read_in_clone = (sectors->original * 512 + main_bio->bi_iter.bi_size) - (prev_rs_info->redirected_sector * 512 + prev_rs_info->block_size);
 		/* Address of main block end (reading fr:om original sector -> bi_size) -  First address of written blocks after sectors->original */
 
@@ -268,7 +269,7 @@ static s32 setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 
 		while (to_read_in_clone > 0) {
 			status = setup_bio_split(clone_bio, main_bio, clone_bio->bi_iter.bi_size - to_read_in_clone);
-		    if (status < 0)
+			if (status < 0)
 				goto split_err;
 
 			to_read_in_clone -= status;
@@ -392,7 +393,7 @@ static struct gendisk *init_disk_bd(char *bd_name)
 	new_disk->first_minor = 1;
 	new_disk->minors = LSBDD_MAX_MINORS_AM;
 	new_disk->fops = &lsbdd_bio_ops;
-	
+
 	if (bd_name) {
 		strcpy(new_disk->disk_name, bd_name);
 	} else {
@@ -522,28 +523,21 @@ disk_init_err:
 
 static s8 delete_bd(u16 index)
 {
-	pr_info("1\n");
 	if (get_list_element_by_index(index)->bdev_handler) {
-	pr_info("1\n");
 		bdev_release(get_list_element_by_index(index)->bdev_handler);
-	pr_info("1\n");
 		get_list_element_by_index(index)->bdev_handler = NULL;
-	pr_info("1\n");
 	} else {
 		pr_info("BD with num %d is empty\n", index + 1);
 	}
-	pr_info("2\n");
 	if (get_list_element_by_index(index)->middle_disk) {
 		del_gendisk(get_list_element_by_index(index)->middle_disk);
 		put_disk(get_list_element_by_index(index)->middle_disk);
 		get_list_element_by_index(index)->middle_disk = NULL;
 	}
-	pr_info("3\n");
 	if (get_list_element_by_index(index)->sel_data_struct) {
 		ds_free(get_list_element_by_index(index)->sel_data_struct);
 		get_list_element_by_index(index)->sel_data_struct = NULL;
 	}
-	pr_info("4\n");
 
 	list_del(&(get_list_element_by_index(index)->list));
 
@@ -682,9 +676,9 @@ static s32  lsbdd_set_redirect_bd(const char *arg, const struct kernel_param *kp
 		pr_err("Wrong input, 2 values are required\n");
 		return -EINVAL;
 	}
-	
+
 	status = check_and_open_bd(path);
-	
+
 	if (!list_empty(&bd_list))
 		bdd_major = register_blkdev(0, LSBDD_BLKDEV_NAME_PREFIX);
 
@@ -692,7 +686,7 @@ static s32  lsbdd_set_redirect_bd(const char *arg, const struct kernel_param *kp
 		return PTR_ERR(&status);
 
 	status = ds_init(list_last_entry(&bd_list, struct bdd_manager, list)->sel_data_struct, sel_ds);
-	pr_info("%p\n", list_last_entry(&bd_list, struct bdd_manager, list)->sel_data_struct);	
+	pr_info("%p\n", list_last_entry(&bd_list, struct bdd_manager, list)->sel_data_struct);
 	if (status)
 		return status;
 

@@ -4,13 +4,17 @@
 
 #include <linux/types.h>
 
-#define CHECK_FOR_NULL(node)                       \
-	if (!node)									   \
-		return NULL								   \
+#define CHECK_FOR_NULL(node)					  \
+	do {										  \
+		if (!node)								  \
+			return NULL							  \
+	} while (0)									  \
 
-#define CHECK_VALUE_AND_RETURN(node)               \
-	if (node->value)							   \
-		return node->value                         \
+#define CHECK_VALUE_AND_RETURN(node)			  \
+	do {										  \
+		if (node->value)						  \
+			return node->value					  \
+	} while (0)									  \
 
 enum data_type {
 	BTREE_TYPE,

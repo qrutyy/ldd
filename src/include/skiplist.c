@@ -290,15 +290,15 @@ void skiplist_print(struct skiplist *sl)
 		curr = head;
 		while (curr) {
 			if (curr->key == HEAD_KEY && curr->value == HEAD_VALUE)
-				pr_info(KERN_CONT "head->");
+				print(KERN_CONT "head->");
 			else if (curr->key == TAIL_KEY && curr->value == TAIL_VALUE)
-				pr_info(KERN_CONT "tail->");
+				print(KERN_CONT "tail->");
 			else
-				pr_info(KERN_CONT "(%llu-%p)->", curr->key, curr->value);
+				print(KERN_CONT "(%llu-%p)->", curr->key, curr->value);
 
 			curr = curr->next;
 		}
-		pr_info(KERN_CONT "\n");
+		print(KERN_CONT "\n");
 		head = head->lower;
 	}
 }
