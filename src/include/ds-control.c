@@ -99,8 +99,8 @@ void *ds_lookup(struct data_struct *ds, sector_t key)
 	struct hash_el *hm_node = NULL;
 	struct rbtree_node *rb_node = NULL;
 	u64 *kp;
-	kp = &key;
 
+	kp = &key;
 	if (ds->type == BTREE_TYPE)
 		return btree_lookup(ds->structure.map_btree->head, &btree_geo64, (unsigned long *)kp);
 	if (ds->type == SKIPLIST_TYPE) {
@@ -126,6 +126,7 @@ void *ds_lookup(struct data_struct *ds, sector_t key)
 void ds_remove(struct data_struct *ds, sector_t key)
 {
 	u64 *kp;
+
 	kp = &key;
 	if (ds->type == BTREE_TYPE)
 		btree_remove(ds->structure.map_btree->head, &btree_geo64, (unsigned long *)kp);
@@ -141,8 +142,8 @@ s32 ds_insert(struct data_struct *ds, sector_t key, void *value)
 {
 	struct hash_el *el = NULL;
 	u64 *kp;
-	kp = &key;
 
+	kp = &key;
 	if (ds->type == BTREE_TYPE)
 		return btree_insert(ds->structure.map_btree->head, &btree_geo64, (unsigned long *)kp, value, GFP_KERNEL);
 	if (ds->type == SKIPLIST_TYPE)
@@ -174,8 +175,8 @@ void *ds_last(struct data_struct *ds, sector_t key)
 	struct skiplist_node *sl_node = NULL;
 	struct rbtree_node *rb_node = NULL;
 	u64 *kp;
-	kp = &key;
 
+	kp = &key;
 	if (ds->type == BTREE_TYPE)
 		return btree_last_no_rep(ds->structure.map_btree->head, &btree_geo64, (unsigned long *)kp);
 	if (ds->type == SKIPLIST_TYPE) {
@@ -203,8 +204,8 @@ void *ds_prev(struct data_struct *ds, sector_t key)
 	struct hash_el *hm_node = NULL;
 	struct rbtree_node *rb_node = NULL;
 	u64 *kp;
-	kp = &key;
 
+	kp = &key;
 	if (ds->type == BTREE_TYPE)
 		return btree_get_prev_no_rep(ds->structure.map_btree->head, &btree_geo64, (unsigned long *)kp);
 	if (ds->type == SKIPLIST_TYPE) {
