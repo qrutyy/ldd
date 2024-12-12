@@ -16,29 +16,30 @@ char sel_ds[LSBDD_MAX_DS_NAME_LEN + 1];
 struct bio_set *bdd_pool;
 struct list_head bd_list;
 static const char *available_ds[] = { "bt", "sl", "ht", "rb"};
+sector_t next_free_sector = LSBDD_SECTOR_OFFSET;
 
-static s32  vector_add_bd(struct bdd_manager *current_bdev_manager)
+static s32  vector_add_bd(struct bd_manager *current_bdev_manager)
 {
 	list_add_tail(&current_bdev_manager->list, &bd_list);
 
 	return 0;
 }
 
-static struct bdd_manager *get_bdd_manager_by_name(char *bd_name)
+static struct bd_manager *get_bd_manager_by_name(char *vbd_name)
 {
-	struct bdd_manager *entry;
+	struct bd_manager *entry;
 
 	list_for_each_entry(entry, &bd_list, list) {
-		if (!strcmp(entry->middle_disk->disk_name, bd_name))
+		if (!strcmp(entry->vbd_disk->disk_name, vbd_name))
 			return entry;
 	}
 
 	return NULL;
 }
 
-static struct bdd_manager *get_list_element_by_index(u16 index)
+static struct bd_manager *get_list_element_by_index(u16 index)
 {
-	struct bdd_manager *entry;
+	struct bd_manager *entry;
 	u16 i = 0;
 
 	list_for_each_entry(entry, &bd_list, list) {
@@ -85,11 +86,11 @@ static void bdd_bio_end_io(struct bio *bio)
  *
  * @main_bio - The original BIO representing the main device I/O operation.
  * @clone_bio - The clone BIO representing the redirected I/O operation.
- * @bdd_manager - Manager that stores information about used ds and bdd in whole.
+ * @bd_manager - Manager that stores information about used ds and bdd in whole.
  *
  * It returns 0 on success, -ENOMEM if memory allocation fails.
  */
-static s32 setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone_bio, struct bdd_manager *current_redirect_manager)
+static s32 setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone_bio, struct bd_manager *current_redirect_manager)
 {
 	s8 status;
 	struct sectors *sectors = NULL;
@@ -103,7 +104,7 @@ static s32 setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone
 		goto mem_err;
 
 	sectors->original = main_bio->bi_iter.bi_sector;
-	sectors->redirect = LSBDD_SECTOR_OFFSET + sectors->original;
+	sectors->redirect = next_free_sector;
 
 	pr_debug("Original sector: bi_sector = %llu, block_size %u\n",
 			main_bio->bi_iter.bi_sector, clone_bio->bi_iter.bi_size);
@@ -120,12 +121,15 @@ static s32 setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone
 
 	if (old_rs_info && !(old_rs_info->redirected_sector == sectors->redirect && old_rs_info->block_size == curr_rs_info->block_size)) {
 		ds_remove(current_redirect_manager->sel_data_struct, sectors->original);
-		status = ds_insert(current_redirect_manager->sel_data_struct, sectors->original, curr_rs_info);
 		if (status)
 			goto insert_err;
+	} else { 
+		next_free_sector += curr_rs_info->block_size / SECTOR_SIZE;
 	}
 
+	status = ds_insert(current_redirect_manager->sel_data_struct, sectors->original, curr_rs_info);
 	clone_bio->bi_iter.bi_sector = sectors->redirect;
+	pr_debug("original %llu, redirected %llu\n", sectors->original, sectors->redirect);
 
 	return 0;
 
@@ -136,7 +140,7 @@ insert_err:
 	return status;
 
 mem_err:
-	pr_err("Memory allocation failed\n");
+pr_err("Memory allocation failed\n");
 	kfree(sectors);
 	kfree(curr_rs_info);
 	return -ENOMEM;
@@ -194,7 +198,7 @@ static s32 setup_bio_split(struct bio *clone_bio, struct bio *main_bio, s32 near
  * - -1 if the BIO is identified as a system BIO.
  * - 0 if the BIO is redirected or otherwise successfully processed.
  */
-static s16 check_system_bio(struct bdd_manager *redirect_manager, struct sectors *sectors, struct bio *bio)
+static s16 check_system_bio(struct bd_manager *redirect_manager, struct sectors *sectors, struct bio *bio)
 {
 	struct redir_sector_info *last_rs = NULL;
 
@@ -227,7 +231,7 @@ static s16 check_system_bio(struct bdd_manager *redirect_manager, struct sectors
  *
  * It returns 0 on success, -ENOMEM if memory allocation fails, or -1 on split error.
  */
-static s32 setup_read_from_clone_segments(struct bio *main_bio, struct bio *clone_bio, struct bdd_manager *redirect_manager)
+static s32 setup_read_from_clone_segments(struct bio *main_bio, struct bio *clone_bio, struct bd_manager *redirect_manager)
 {
 	struct redir_sector_info *curr_rs_info = NULL;
 	struct redir_sector_info *prev_rs_info = NULL;
@@ -246,7 +250,7 @@ static s32 setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 		goto mem_err;
 	pr_info("Entered read\n");
 
-	sectors->original = LSBDD_SECTOR_OFFSET + main_bio->bi_iter.bi_sector;
+	sectors->original = main_bio->bi_iter.bi_sector;
 	curr_rs_info = ds_lookup(redirect_manager->sel_data_struct, sectors->original);
 
 	pr_info("READ: key: %llu\n", sectors->original);
@@ -259,10 +263,11 @@ static s32 setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 		pr_debug("READ: Sector: %llu isnt mapped\n", sectors->original);
 
 		prev_rs_info = ds_prev(redirect_manager->sel_data_struct, sectors->original);
-		clone_bio->bi_iter.bi_sector = sectors->original;
-
+		clone_bio->bi_iter.bi_sector = prev_rs_info->redirected_sector + (prev_rs_info->block_size - main_bio->bi_iter.bi_size)/ SECTOR_SIZE;
+		pr_debug("redirect sector: %u\n", clone_bio->bi_iter.bi_size);
+		pr_debug("orig: %llu, main size: %u, prev size: %u redir: %llu\n", sectors->original, main_bio->bi_iter.bi_size, prev_rs_info->block_size, prev_rs_info->redirected_sector);
 		to_read_in_clone = (sectors->original * 512 + main_bio->bi_iter.bi_size) - (prev_rs_info->redirected_sector * 512 + prev_rs_info->block_size);
-		/* Address of main block end (reading fr:om original sector -> bi_size) -  First address of written blocks after sectors->original */
+		/* Address of main block end (reading from original sector -> bi_size) -  First address of written blocks after sectors->original */
 
 		pr_debug("To read = %d, main size = %u, prev_rs bs = %u, prev_rs sector = %llu\n", to_read_in_clone, main_bio->bi_iter.bi_size, prev_rs_info->block_size, prev_rs_info->redirected_sector);
 		pr_debug("Clone bio: sector = %llu, sec num = %u\n", clone_bio->bi_iter.bi_sector, clone_bio->bi_iter.bi_size / SECTOR_SIZE);
@@ -274,9 +279,10 @@ static s32 setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 
 			to_read_in_clone -= status;
 		}
-		clone_bio->bi_iter.bi_size = prev_rs_info->block_size;
+		clone_bio->bi_iter.bi_size = main_bio->bi_iter.bi_size;
 
 	} else if (curr_rs_info->redirected_sector) { // Read & Write start sectors are equal.
+		pr_debug("original %llu, redirected %llu\n", sectors->original, curr_rs_info->redirected_sector);
 		pr_debug("Found redirected sector: %llu, rs_bs = %u, main_bs = %u\n",
 			(curr_rs_info->redirected_sector), curr_rs_info->block_size, main_bio->bi_iter.bi_size);
 
@@ -319,16 +325,16 @@ mem_err:
 static void lsbdd_submit_bio(struct bio *bio)
 {
 	struct bio *clone = NULL;
-	struct bdd_manager *current_redirect_manager = NULL;
+	struct bd_manager *current_redirect_manager = NULL;
 	s16 status;
 
 	pr_info("Entered submit bio\n");
 
-	current_redirect_manager = get_bdd_manager_by_name(bio->bi_bdev->bd_disk->disk_name);
+	current_redirect_manager = get_bd_manager_by_name(bio->bi_bdev->bd_disk->disk_name);
 	if (!current_redirect_manager)
 		goto get_err;
 
-	clone = bio_alloc_clone(current_redirect_manager->bdev_handler->bdev, bio,
+	clone = bio_alloc_clone(current_redirect_manager->bd_handler->bdev, bio,
 							GFP_KERNEL, bdd_pool);
 	if (!clone)
 		goto clone_err;
@@ -354,7 +360,7 @@ static void lsbdd_submit_bio(struct bio *bio)
 	return;
 
 get_err:
-	pr_err("No such bdd_manager with middle disk %s and not empty handler\n",
+	pr_err("No such bd_manager with middle disk %s and not empty handler\n",
 		bio->bi_bdev->bd_disk->disk_name);
 	bdd_bio_end_io(bio);
 	return;
@@ -377,15 +383,15 @@ static const struct block_device_operations lsbdd_bio_ops = {
 
 /**
  * init_disk_bd() - Initialises gendisk structure, for 'middle' disk
- * @bd_name: name of creating BD
+ * @vbd_name: name of creating BD
  *
  * DOESN'T SET UP the disks capacity, check lsbdd_submit_bio()
  * AND DOESN'T ADD disk if there was one already TO FIX?
  */
-static struct gendisk *init_disk_bd(char *bd_name)
+static struct gendisk *init_disk_bd(char *vbd_name)
 {
 	struct gendisk *new_disk = NULL;
-	struct bdd_manager *linked_manager = NULL;
+	struct bd_manager *linked_manager = NULL;
 
 	new_disk = blk_alloc_disk(NUMA_NO_NODE);
 
@@ -394,10 +400,10 @@ static struct gendisk *init_disk_bd(char *bd_name)
 	new_disk->minors = LSBDD_MAX_MINORS_AM;
 	new_disk->fops = &lsbdd_bio_ops;
 
-	if (bd_name) {
-		strcpy(new_disk->disk_name, bd_name);
+	if (vbd_name) {
+		strcpy(new_disk->disk_name, vbd_name);
 	} else {
-		pr_warn("bd_name is NULL, nothing to copy\n");
+		pr_warn("vbd_name is NULL, nothing to copy\n");
 		return NULL;
 	}
 
@@ -406,9 +412,9 @@ static struct gendisk *init_disk_bd(char *bd_name)
 		return NULL;
 	}
 
-	linked_manager = list_last_entry(&bd_list, struct bdd_manager, list);
+	linked_manager = list_last_entry(&bd_list, struct bd_manager, list);
 	set_capacity(new_disk,
-				 get_capacity(linked_manager->bdev_handler->bdev->bd_disk));
+				 get_capacity(linked_manager->bd_handler->bdev->bd_disk));
 	return new_disk;
 }
 
@@ -419,7 +425,7 @@ static struct gendisk *init_disk_bd(char *bd_name)
  */
 static s32 check_and_open_bd(char *bd_path)
 {
-	struct bdd_manager *current_bdev_manager = kzalloc(sizeof(struct bdd_manager), GFP_KERNEL);
+	struct bd_manager *current_bdev_manager = kzalloc(sizeof(struct bd_manager), GFP_KERNEL);
 	struct bdev_handle *current_bdev_handle = NULL;
 	struct data_struct *curr_ds = kzalloc(sizeof(struct data_struct), GFP_KERNEL);
 
@@ -431,8 +437,8 @@ static s32 check_and_open_bd(char *bd_path)
 	if (IS_ERR(current_bdev_handle))
 		goto free_bdev;
 
-	current_bdev_manager->bdev_handler = current_bdev_handle;
-	current_bdev_manager->bd_name = bd_path;
+	current_bdev_manager->bd_handler = current_bdev_handle;
+	current_bdev_manager->vbd_name = bd_path;
 	current_bdev_manager->sel_data_struct = curr_ds;
 
 	vector_add_bd(current_bdev_manager);
@@ -467,7 +473,7 @@ static char *create_disk_name_by_index(s32 index)
 
 /**
  * Sets the name for a new BD, that will be used as 'device in the middle'.
- * Adds disk to the last bdd_manager, that was modified by adding bdev_handler
+ * Adds disk to the last bd_manager, that was modified by adding bd_handler
  * through check_and_open_bd()
  *
  * @name_index - an index for disk name
@@ -494,9 +500,9 @@ static s32 create_bd(s32 name_index)
 		goto disk_init_err;
 	}
 
-	list_last_entry(&bd_list, struct bdd_manager, list)->middle_disk = new_disk;
+	list_last_entry(&bd_list, struct bd_manager, list)->vbd_disk = new_disk;
 
-	strcpy(list_last_entry(&bd_list, struct bdd_manager, list)->middle_disk->disk_name, disk_name);
+	strcpy(list_last_entry(&bd_list, struct bd_manager, list)->vbd_disk->disk_name, disk_name);
 
 	status = add_disk(new_disk);
 
@@ -523,16 +529,16 @@ disk_init_err:
 
 static s8 delete_bd(u16 index)
 {
-	if (get_list_element_by_index(index)->bdev_handler) {
-		bdev_release(get_list_element_by_index(index)->bdev_handler);
-		get_list_element_by_index(index)->bdev_handler = NULL;
+	if (get_list_element_by_index(index)->bd_handler) {
+		bdev_release(get_list_element_by_index(index)->bd_handler);
+		get_list_element_by_index(index)->bd_handler = NULL;
 	} else {
 		pr_info("BD with num %d is empty\n", index + 1);
 	}
-	if (get_list_element_by_index(index)->middle_disk) {
-		del_gendisk(get_list_element_by_index(index)->middle_disk);
-		put_disk(get_list_element_by_index(index)->middle_disk);
-		get_list_element_by_index(index)->middle_disk = NULL;
+	if (get_list_element_by_index(index)->vbd_disk) {
+		del_gendisk(get_list_element_by_index(index)->vbd_disk);
+		put_disk(get_list_element_by_index(index)->vbd_disk);
+		get_list_element_by_index(index)->vbd_disk = NULL;
 	}
 	if (get_list_element_by_index(index)->sel_data_struct) {
 		ds_free(get_list_element_by_index(index)->sel_data_struct);
@@ -546,14 +552,14 @@ static s8 delete_bd(u16 index)
 }
 
 /**
- * lsbdd_get_bd_names() - Function that prints the list of block devices, that
+ * lsbdd_get_vbd_names() - Function that prints the list of block devices, that
  * are stored in vector.
  *
  * Vector stores only BD's that we've touched from this module.
  */
-static s32 lsbdd_get_bd_names(char *buf, const struct kernel_param *kp)
+static s32 lsbdd_get_vbd_names(char *buf, const struct kernel_param *kp)
 {
-	struct bdd_manager *current_manager = NULL;
+	struct bd_manager *current_manager = NULL;
 	u8 total_length = 0;
 	u8 offset = 0;
 	u8 i = 0;
@@ -565,12 +571,12 @@ static s32 lsbdd_get_bd_names(char *buf, const struct kernel_param *kp)
 	}
 
 	list_for_each_entry(current_manager, &bd_list, list) {
-		if (current_manager->bdev_handler != NULL) {
+		if (current_manager->bd_handler != NULL) {
 			i++;
 			length = sprintf(
 				buf + offset, "%d. %s -> %s\n", i,
-				current_manager->middle_disk->disk_name,
-				current_manager->bdev_handler->bdev->bd_disk->disk_name);
+				current_manager->vbd_disk->disk_name,
+				current_manager->bd_handler->bdev->bd_disk->disk_name);
 
 			if (length < 0) {
 				pr_err("Error in formatting string\n");
@@ -587,7 +593,7 @@ static s32 lsbdd_get_bd_names(char *buf, const struct kernel_param *kp)
 
 /**
  * lsbdd_delete_bd() - Deletes bdev according to index from printed list (check
- * lsbdd_get_bd_names)
+ * lsbdd_get_vbd_names)
  */
 static s32  lsbdd_delete_bd(const char *arg, const struct kernel_param *kp)
 {
@@ -671,7 +677,6 @@ static s32  lsbdd_set_redirect_bd(const char *arg, const struct kernel_param *kp
 	s8 status;
 	s32 index;
 	char path[LSBDD_MAX_BD_NAME_LENGTH];
-
 	if (sscanf(arg, "%d %s", &index, path) != 2) {
 		pr_err("Wrong input, 2 values are required\n");
 		return -EINVAL;
@@ -685,8 +690,8 @@ static s32  lsbdd_set_redirect_bd(const char *arg, const struct kernel_param *kp
 	if (status)
 		return PTR_ERR(&status);
 
-	status = ds_init(list_last_entry(&bd_list, struct bdd_manager, list)->sel_data_struct, sel_ds);
-	pr_info("%p\n", list_last_entry(&bd_list, struct bdd_manager, list)->sel_data_struct);
+	status = ds_init(list_last_entry(&bd_list, struct bd_manager, list)->sel_data_struct, sel_ds);
+	pr_info("%p\n", list_last_entry(&bd_list, struct bd_manager, list)->sel_data_struct);
 	if (status)
 		return status;
 
@@ -735,7 +740,7 @@ mem_err:
 static void __exit lsbdd_exit(void)
 {
 	u16 i = 0;
-	struct bdd_manager *entry, *tmp;
+	struct bd_manager *entry, *tmp;
 
 	if (!list_empty(&bd_list)) {
 		while (get_list_element_by_index(i) != NULL)
@@ -761,7 +766,7 @@ static const struct kernel_param_ops lsbdd_delete_ops = {
 
 static const struct kernel_param_ops lsbdd_get_bd_ops = {
 	.set = NULL,
-	.get = lsbdd_get_bd_names,
+	.get = lsbdd_get_vbd_names,
 };
 
 static const struct kernel_param_ops lsbdd_redirect_ops = {
@@ -777,8 +782,8 @@ static const struct kernel_param_ops lsbdd_ds_ops = {
 MODULE_PARM_DESC(delete_bd, "Delete BD");
 module_param_cb(delete_bd, &lsbdd_delete_ops, NULL, 0200);
 
-MODULE_PARM_DESC(get_bd_names, "Get list of disks and their redirect bd's");
-module_param_cb(get_bd_names, &lsbdd_get_bd_ops, NULL, 0644);
+MODULE_PARM_DESC(get_vbd_names, "Get list of disks and their redirect bd's");
+module_param_cb(get_vbd_names, &lsbdd_get_bd_ops, NULL, 0644);
 
 MODULE_PARM_DESC(set_redirect_bd, "Link local disk with redirect aim bd");
 module_param_cb(set_redirect_bd, &lsbdd_redirect_ops, NULL, 0200);

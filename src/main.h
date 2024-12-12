@@ -13,10 +13,10 @@ struct redir_sector_info {
 	u32 block_size;
 };
 
-struct bdd_manager {
-	char *bd_name;
-	struct gendisk *middle_disk;
-	struct bdev_handle *bdev_handler;
+struct bd_manager {
+	char *vbd_name;
+	struct gendisk *vbd_disk;
+	struct bdev_handle *bd_handler;
 	struct data_struct *sel_data_struct;
 	struct list_head list;
 };
