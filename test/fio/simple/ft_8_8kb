@@ -1,0 +1,24 @@
+[global]
+ioengine=libaio
+direct=1
+randrepeat=1
+size=1000M
+
+numjobs=1
+filename=/dev/lsvbd1
+stonewall
+
+# 8k RANDOM WRITE TEST
+[random_write_8k]
+rw=write
+blocksize=8k
+ramp_time=10s
+iodepth=1
+
+# 8k RANDOM READ WITH VERIFY
+[random_read_8k]
+rw=read
+blocksize=8k
+ramp_time=10s
+iodepth=1
+
