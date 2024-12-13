@@ -270,17 +270,20 @@ static s32 setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 		/* Address of main block end (reading from original sector -> bi_size) -  First address of written blocks after sectors->original */
 
 		pr_debug("To read = %d, main size = %u, prev_rs bs = %u, prev_rs sector = %llu\n", to_read_in_clone, main_bio->bi_iter.bi_size, prev_rs_info->block_size, prev_rs_info->redirected_sector);
-		pr_debug("Clone bio: sector = %llu, sec num = %u\n", clone_bio->bi_iter.bi_sector, clone_bio->bi_iter.bi_size / SECTOR_SIZE);
+		pr_debug("Clone bio: sector = %llu, sec num = %u, size = %u\n", clone_bio->bi_iter.bi_sector, clone_bio->bi_iter.bi_size / SECTOR_SIZE, clone_bio->bi_iter.bi_size);
 
-		while (to_read_in_clone > 0) {
-			status = setup_bio_split(clone_bio, main_bio, clone_bio->bi_iter.bi_size - to_read_in_clone);
-			if (status < 0)
-				goto split_err;
+		if (to_read_in_clone < main_bio->bi_iter.bi_size) {
+			pr_info("1\n");
+			while (to_read_in_clone > 0) {
+				status = setup_bio_split(clone_bio, main_bio, clone_bio->bi_iter.bi_size - to_read_in_clone);
+				if (status < 0)
+					goto split_err;
 
-			to_read_in_clone -= status;
+				to_read_in_clone -= status;
+			}
 		}
+		pr_info("cl: %u\n", clone_bio->bi_iter.bi_size - to_read_in_clone);
 		clone_bio->bi_iter.bi_size = main_bio->bi_iter.bi_size;
-
 	} else if (curr_rs_info->redirected_sector) { // Read & Write start sectors are equal.
 		pr_debug("original %llu, redirected %llu\n", sectors->original, curr_rs_info->redirected_sector);
 		pr_debug("Found redirected sector: %llu, rs_bs = %u, main_bs = %u\n",
