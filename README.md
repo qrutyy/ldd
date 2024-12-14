@@ -19,7 +19,7 @@ echo "index path" > /sys/module/lsbdd/parameters/set_redirect_bd
 **ds_name** - one of available data structures to store the mapping ("bt", "ht", "sl", "rb")
 **index** - postfix for a 'device in the middle' (prefix is 'lsvbd'), **path** - to which block device to redirect
 
-*2nd and 4th steps can be reduced to `make ins` and `make set`*
+*All this steps can be reduced to `make init`*
 
 ### Sending requests: 
 
@@ -41,7 +41,7 @@ dd of=test2.txt if=/dev/lsvbd1 iflag=direct bs=4K count=10;
 ### Testing
 After making some changes you can check a lot of obvious cases using auto-tests:
 ```
-python3 test/autotest.py -vdb="lsvbd1" -n=5 -fs=-1 -bs=0
+python3 test/autotest.py -vbd="lsvbd1" -n=5 -fs=-1 -bs=0
 ```
 For parameter description - run:
 ```
@@ -50,9 +50,16 @@ python3 test/autotest.py -c
 
 In addition you can use the provided fio tests, that time the execution and use pattern-verify process.
 ```
+make fio_verify WO=randwrite RO=randread FS=1000 WBS=8 RBS=8
+```
+Options description is provided in `Makefile`.
+
+Although, if you need more customizable fio testing - you can check `test/fio/` for more predefined configs. Run them by:
+```
 fio test/fio/_
 ```
 *Basic test - "ftv_4_8/ftv_8_4"*
+Also including the *.sh* versions (better use them for this moment)
 
 ## License
 
