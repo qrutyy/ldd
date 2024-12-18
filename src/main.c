@@ -236,6 +236,9 @@ static s32 setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 	struct redir_sector_info *curr_rs_info = NULL;
 	struct redir_sector_info *prev_rs_info = NULL;
 	struct sectors *sectors = NULL;
+	sector_t prev_sector_val = 0;
+	sector_t *prev_sector = &prev_sector_val;
+	s32 to_end_of_block = 0;
 	s32 to_read_in_clone = 0;
 	s16 status = 0;
 
@@ -248,7 +251,6 @@ static s32 setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 
 	if (!(sectors && curr_rs_info && prev_rs_info))
 		goto mem_err;
-	pr_info("Entered read\n");
 
 	sectors->original = main_bio->bi_iter.bi_sector;
 	curr_rs_info = ds_lookup(redirect_manager->sel_data_struct, sectors->original);
@@ -262,30 +264,33 @@ static s32 setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 
 		pr_debug("READ: Sector: %llu isnt mapped\n", sectors->original);
 
-		prev_rs_info = ds_prev(redirect_manager->sel_data_struct, sectors->original);
-		clone_bio->bi_iter.bi_sector = prev_rs_info->redirected_sector + (prev_rs_info->block_size - main_bio->bi_iter.bi_size)/ SECTOR_SIZE;
-		pr_debug("redirect sector: %u\n", clone_bio->bi_iter.bi_size);
-		pr_debug("orig: %llu, main size: %u, prev size: %u redir: %llu\n", sectors->original, main_bio->bi_iter.bi_size, prev_rs_info->block_size, prev_rs_info->redirected_sector);
-		to_read_in_clone = (sectors->original * 512 + main_bio->bi_iter.bi_size) - (prev_rs_info->redirected_sector * 512 + prev_rs_info->block_size);
-		/* Address of main block end (reading from original sector -> bi_size) -  First address of written blocks after sectors->original */
+		prev_rs_info = ds_prev(redirect_manager->sel_data_struct, sectors->original, prev_sector);
+		sectors->redirect = prev_rs_info->redirected_sector * SECTOR_SIZE + (sectors->original - *prev_sector) * SECTOR_SIZE;
+		to_end_of_block = (prev_rs_info->redirected_sector * SECTOR_SIZE + prev_rs_info->block_size) - sectors->redirect;
+		to_read_in_clone = main_bio->bi_iter.bi_size - to_end_of_block;
+		/* Address of main block end (reading from operation pba + bi_size) - End of previous block */
+		
+		clone_bio->bi_iter.bi_sector = prev_rs_info->redirected_sector + (prev_rs_info->block_size - to_end_of_block)/ SECTOR_SIZE;
+		
+		pr_debug("To read = %d, to end = %d, main size = %u, prev_rs bs = %u, prev_rs sector = %llu\n", to_read_in_clone, to_end_of_block, main_bio->bi_iter.bi_size, prev_rs_info->block_size, prev_rs_info->redirected_sector);
+		pr_debug("Clone bio: sector = %llu, size = %u\n", clone_bio->bi_iter.bi_sector, clone_bio->bi_iter.bi_size);
 
-		pr_debug("To read = %d, main size = %u, prev_rs bs = %u, prev_rs sector = %llu\n", to_read_in_clone, main_bio->bi_iter.bi_size, prev_rs_info->block_size, prev_rs_info->redirected_sector);
-		pr_debug("Clone bio: sector = %llu, sec num = %u, size = %u\n", clone_bio->bi_iter.bi_sector, clone_bio->bi_iter.bi_size / SECTOR_SIZE, clone_bio->bi_iter.bi_size);
-
-		if (to_read_in_clone < main_bio->bi_iter.bi_size) {
-			pr_info("1\n");
-			while (to_read_in_clone > 0) {
-				status = setup_bio_split(clone_bio, main_bio, clone_bio->bi_iter.bi_size - to_read_in_clone);
+		if (to_read_in_clone < main_bio->bi_iter.bi_size && to_read_in_clone != 0) {
+			while (to_end_of_block > 0) {
+				status = setup_bio_split(clone_bio, main_bio, to_end_of_block);
 				if (status < 0)
 					goto split_err;
 
-				to_read_in_clone -= status;
+				if (to_read_in_clone > prev_rs_info->block_size) {
+					to_read_in_clone -= prev_rs_info->block_size;
+					to_end_of_block = prev_rs_info->block_size;
+				} else {
+					break;
+				}
 			}
 		}
-		pr_info("cl: %u\n", clone_bio->bi_iter.bi_size - to_read_in_clone);
-		clone_bio->bi_iter.bi_size = main_bio->bi_iter.bi_size;
+		clone_bio->bi_iter.bi_size = (to_read_in_clone <= 0) ? to_end_of_block : to_read_in_clone;
 	} else if (curr_rs_info->redirected_sector) { // Read & Write start sectors are equal.
-		pr_debug("original %llu, redirected %llu\n", sectors->original, curr_rs_info->redirected_sector);
 		pr_debug("Found redirected sector: %llu, rs_bs = %u, main_bs = %u\n",
 			(curr_rs_info->redirected_sector), curr_rs_info->block_size, main_bio->bi_iter.bi_size);
 
