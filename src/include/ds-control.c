@@ -119,14 +119,6 @@ void *ds_lookup(struct data_struct *ds, sector_t key)
 		CHECK_VALUE_AND_RETURN(rb_node);
 	}
 
-		return hm_node->value;
-	}
-	if (ds->type == RBTREE_TYPE) {
-		rb_node = rbtree_find_node(ds->structure.map_rbtree, *key);
-		CHECK_FOR_NULL(rb_node);
-		CHECK_VALUE_AND_RETURN(rb_node);
-	}
-
 	pr_err("Failed to lookup, key is NULL\n");
 	BUG();
 }

@@ -8,6 +8,8 @@
 #define LSBDD_BLKDEV_NAME_PREFIX "lsvbd"
 #define LSBDD_SECTOR_OFFSET 32
 
+static const char *available_ds[] = {"bt", "sl", "ht", "rb"};
+
 struct redir_sector_info {
 	sector_t redirected_sector;
 	u32 block_size;

@@ -15,7 +15,6 @@ static s32  bdd_major;
 char sel_ds[LSBDD_MAX_DS_NAME_LEN + 1];
 struct bio_set *bdd_pool;
 struct list_head bd_list;
-static const char *available_ds[] = { "bt", "sl", "ht", "rb"};
 sector_t next_free_sector = LSBDD_SECTOR_OFFSET;
 
 static s32  vector_add_bd(struct bd_manager *current_bdev_manager)

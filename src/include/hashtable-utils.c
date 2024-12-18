@@ -68,10 +68,6 @@ struct hash_el *hashtable_prev(struct hashtable *ht, sector_t key, sector_t *pre
 	return prev_max_node;
 }
 
-void hashtable_remove(struct hashtable *hm, sector_t key)
-{
-	struct hlist_node *hm_node = NULL;
-
 void hashtable_remove(struct hashtable *ht, sector_t key)
 {
 	struct hlist_node *ht_node = NULL;
@@ -79,3 +75,4 @@ void hashtable_remove(struct hashtable *ht, sector_t key)
 	ht_node = &hashtable_find_node(ht, key)->node;
 	hash_del(ht_node);
 }
+
