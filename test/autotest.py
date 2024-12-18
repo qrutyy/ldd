@@ -12,7 +12,7 @@ TEST_DIR = os.path.join(BASE_DIR, 'test/generated_tf')
 DEFAULT_SUITABLE_FILE_SIZES = [32, 36, 48, 64, 128, 256, 512, 1024, 2048, 4096]
 
 test_count = 0
-errors = []
+errors = []    
 
 def get_even_divisors(n):
     divisors = set()
@@ -74,6 +74,45 @@ def run_dd_command(command):
     except subprocess.CalledProcessError as e:
         print(f"Error executing command: {e}")
 
+def parse_get_names():
+    try:
+        command = "cat /sys/module/lsbdd/parameters/get_vbd_names"
+        result = subprocess.run(
+            command, shell=True, check=True, text=True, capture_output=True, timeout=5
+        )
+        
+        print(f"stdout:\n{result.stdout}")
+        print(f"stderr:\n{result.stderr}")
+        
+        pairs = []
+        for line in result.stdout.strip().split("\n"):
+            if '->' in line:
+                parts = line.split('->')[0].strip().replace(".", "").split()
+                if len(parts) == 2:
+                    pairs.append((parts[0].strip(','), parts[1].strip()))
+        
+        return pairs
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing command: {e}")
+        return []
+    except subprocess.TimeoutExpired as e:
+        print(f"Command timed out: {e}")
+        return []
+
+def get_vbd_index_by_name(vbd_name):
+    names = parse_get_names()
+    for p_index, p_vbd_name in names:
+        if p_vbd_name == vbd_name:
+            return p_index
+    return 0
+
+def reinit_driver(vbd_name):
+    try:
+        subprocess.run(f"make exit DBI={index}", shell=True, check=True, text=True, timeout=5)
+        subprocess.run(f"make init_no_recompile", shell=True, check=True, text=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error re initing the driver: {e}")
+
 def process_test_file(vbd_name, input_file, output_file, block_sizes):
     global test_count
     file_size = os.path.getsize(input_file)
@@ -83,13 +122,15 @@ def process_test_file(vbd_name, input_file, output_file, block_sizes):
 
         run_dd_command(f"dd if={input_file} of=/dev/{vbd_name} oflag=direct bs={write_bs}k count={write_count}")
         run_dd_command(f"dd if=/dev/{vbd_name} of={output_file} iflag=direct bs={read_bs}k count={read_count}")
-        
         test_count+=1
 
         if not compare_files(input_file, output_file):
             errors.append((write_bs, read_bs))
+        reinit_driver(vbd_name)
 
 def run_tests(vbd_name, num_files, file_size_kb, block_size_kb):
+    global index
+    index = get_vbd_index_by_name(vbd_name)
     if file_size_kb == -1:
         for size in DEFAULT_SUITABLE_FILE_SIZES:        
             create_test_files(num_files, file_size_kb, TEST_DIR)
@@ -113,6 +154,7 @@ def main():
                              'Set to -1 for running all file sizes.')
     parser.add_argument('--block_size_kb', '-bs', type=int, default=0, help='Block size for dd command in KB. \nSet to 0 for automatic selection.')
     parser.add_argument('--clear', '-c', action='store_true', help="Clear the test directory")
+    parse.add_argument('--mode', '-m', type=str, default="seq", help='Defines the mode to run. \nSet to "seq" for sequential operation in one file. \nSet "inc" for inconsecutive operations, i.e. 1 operation -> 1 file')
     args = parser.parse_args()
 
     if args.clear:
