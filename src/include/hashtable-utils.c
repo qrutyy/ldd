@@ -41,7 +41,7 @@ struct hash_el *hashtable_find_node(struct hashtable *ht, sector_t key)
 	return NULL;
 }
 
-struct hash_el *hashtable_prev(struct hashtable *ht, sector_t key)
+struct hash_el *hashtable_prev(struct hashtable *ht, sector_t key, sector_t *prev_key)
 {
 	struct hash_el *prev_max_node = kzalloc(sizeof(struct hash_el), GFP_KERNEL);
 	struct hash_el *el;
@@ -62,8 +62,9 @@ struct hash_el *hashtable_prev(struct hashtable *ht, sector_t key)
 		if (prev_max_node->key == 0)
 			return NULL;
 	}
-	pr_debug("Hashtabel: Element with prev key - el key=%llu, val=%p\n", prev_max_node->key, prev_max_node->value);
+	pr_debug("Hashtable: Element with prev key - el key=%llu, val=%p\n", prev_max_node->key, prev_max_node->value);
 
+	*prev_key = prev_max_node->key;
 	return prev_max_node;
 }
 

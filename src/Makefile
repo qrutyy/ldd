@@ -4,7 +4,7 @@ name = lsbdd
 # Delete Block device Index
 DBI?=1
 #Data Structure name (bt, ht, sl, rb. For more info - see README)
-DS?="bt"
+DS?=bt
 # Read operation block size in KB(2, 4, 8...)
 RBS?=4
 # Write operation block size in KB(2, 4, 8...)

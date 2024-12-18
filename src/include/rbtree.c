@@ -54,7 +54,6 @@ static struct rbtree_node *__rbtree_underlying_search(struct rb_root *root,
 		if (result == -2)
 			return NULL;
 
-		pr_debug("result = %d rb_right %p rb_left %p\n", result, node->rb_right, node->rb_left);
 		if (result < 0)
 			node = node->rb_left;
 
@@ -190,7 +189,7 @@ struct rbtree_node *rbtree_last(struct rbtree *rbt)
 	return container_of(node, struct rbtree_node, node);
 }
 
-struct rbtree_node *rbtree_prev(struct rbtree *rbt, sector_t key)
+struct rbtree_node *rbtree_prev(struct rbtree *rbt, sector_t key, sector_t *prev_key)
 {
 	struct rbtree_node *curr = NULL;
 	struct rb_root root = rbt->root;
@@ -210,7 +209,7 @@ struct rbtree_node *rbtree_prev(struct rbtree *rbt, sector_t key)
 				ancestor = ancestor->rb_left;
 			}
 		}
-
+		*prev_key = prev->key;
 		return prev;
 	}
 
@@ -220,7 +219,9 @@ struct rbtree_node *rbtree_prev(struct rbtree *rbt, sector_t key)
 		node = node->rb_left;
 		while (node && node->rb_right)
 			node = node->rb_right;
-		return container_of(node, struct rbtree_node, node);
+		curr = container_of(node, struct rbtree_node, node);
+		*prev_key = curr->key;
+		return curr;
 	}
 
 	return NULL;

@@ -22,5 +22,5 @@ void rbtree_free(struct rbtree *rbt);
 void rbtree_add(struct rbtree *rbt, sector_t key, void *value);
 void rbtree_remove(struct rbtree *rbt, sector_t key);
 struct rbtree_node *rbtree_find_node(struct rbtree *rbt, sector_t key);
-struct rbtree_node *rbtree_prev(struct rbtree *rbt, sector_t key);
+struct rbtree_node *rbtree_prev(struct rbtree *rbt, sector_t key, sector_t *prev_key);
 struct rbtree_node *rbtree_last(struct rbtree *rbt);

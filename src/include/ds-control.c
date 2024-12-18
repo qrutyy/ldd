@@ -206,7 +206,7 @@ void *ds_last(struct data_struct *ds, sector_t key)
 	BUG();
 }
 
-void *ds_prev(struct data_struct *ds, sector_t key)
+void *ds_prev(struct data_struct *ds, sector_t key, sector_t *prev_key)
 {
 	struct skiplist_node *sl_node = NULL;
 	struct hash_el *hm_node = NULL;
@@ -215,19 +215,19 @@ void *ds_prev(struct data_struct *ds, sector_t key)
 
 	kp = &key;
 	if (ds->type == BTREE_TYPE)
-		return btree_get_prev_no_rep(ds->structure.map_btree->head, &btree_geo64, (unsigned long *)kp);
+		return btree_get_prev_no_rep(ds->structure.map_btree->head, &btree_geo64, (unsigned long *)kp, (unsigned long *)prev_key);
 	if (ds->type == SKIPLIST_TYPE) {
-		sl_node = skiplist_prev(ds->structure.map_list, key);
+		sl_node = skiplist_prev(ds->structure.map_list, key, prev_key);
 		CHECK_FOR_NULL(sl_node);
 		CHECK_VALUE_AND_RETURN(sl_node);
 	}
 	if (ds->type == HASHTABLE_TYPE) {
-		hm_node = hashtable_prev(ds->structure.map_hash, key);
+		hm_node = hashtable_prev(ds->structure.map_hash, key, prev_key);
 		CHECK_FOR_NULL(hm_node);
 		CHECK_VALUE_AND_RETURN(hm_node);
 	}
 	if (ds->type == RBTREE_TYPE) {
-		rb_node = rbtree_prev(ds->structure.map_rbtree, key);
+		rb_node = rbtree_prev(ds->structure.map_rbtree, key, prev_key);
 		CHECK_FOR_NULL(rb_node);
 		CHECK_VALUE_AND_RETURN(rb_node);
 	}

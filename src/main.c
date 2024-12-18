@@ -123,7 +123,7 @@ static s32 setup_write_in_clone_segments(struct bio *main_bio, struct bio *clone
 		ds_remove(current_redirect_manager->sel_data_struct, sectors->original);
 		if (status)
 			goto insert_err;
-	} else { 
+	} else {
 		next_free_sector += curr_rs_info->block_size / SECTOR_SIZE;
 	}
 
@@ -269,9 +269,9 @@ static s32 setup_read_from_clone_segments(struct bio *main_bio, struct bio *clon
 		to_end_of_block = (prev_rs_info->redirected_sector * SECTOR_SIZE + prev_rs_info->block_size) - sectors->redirect;
 		to_read_in_clone = main_bio->bi_iter.bi_size - to_end_of_block;
 		/* Address of main block end (reading from operation pba + bi_size) - End of previous block */
-		
-		clone_bio->bi_iter.bi_sector = prev_rs_info->redirected_sector + (prev_rs_info->block_size - to_end_of_block)/ SECTOR_SIZE;
-		
+
+		clone_bio->bi_iter.bi_sector = prev_rs_info->redirected_sector + (prev_rs_info->block_size - to_end_of_block) / SECTOR_SIZE;
+
 		pr_debug("To read = %d, to end = %d, main size = %u, prev_rs bs = %u, prev_rs sector = %llu\n", to_read_in_clone, to_end_of_block, main_bio->bi_iter.bi_size, prev_rs_info->block_size, prev_rs_info->redirected_sector);
 		pr_debug("Clone bio: sector = %llu, size = %u\n", clone_bio->bi_iter.bi_sector, clone_bio->bi_iter.bi_size);
 
@@ -349,7 +349,6 @@ static void lsbdd_submit_bio(struct bio *bio)
 
 	clone->bi_private = bio;
 	clone->bi_end_io = bdd_bio_end_io;
-	pr_info("Entered submit bio\n");
 
 	if (bio_op(bio) == REQ_OP_READ)
 		status = setup_read_from_clone_segments(bio, clone, current_redirect_manager);
@@ -685,6 +684,7 @@ static s32  lsbdd_set_redirect_bd(const char *arg, const struct kernel_param *kp
 	s8 status;
 	s32 index;
 	char path[LSBDD_MAX_BD_NAME_LENGTH];
+
 	if (sscanf(arg, "%d %s", &index, path) != 2) {
 		pr_err("Wrong input, 2 values are required\n");
 		return -EINVAL;

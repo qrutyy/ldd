@@ -145,7 +145,7 @@ miss:
 }
 
 void *btree_get_prev_no_rep(struct btree_head *head, struct btree_geo *geo,
-		     unsigned long *key)
+		     unsigned long *key, unsigned long *prev_key)
 {
 	s32 i, height;
 	unsigned long *node, *oldnode;
@@ -176,8 +176,11 @@ void *btree_get_prev_no_rep(struct btree_head *head, struct btree_geo *geo,
 
 	for (i = 0; i < geo->no_pairs; i++) {
 		if (keycmp(geo, node, i, key) <= 0) {
-			if (bval(geo, node, i))
+			if (bval(geo, node, i)) {
+				*prev_key = *bkey(geo, node, i);
+				pr_debug("B+Tree: prev_key %lu\n", *prev_key);
 				return bval(geo, node, i);
+			}
 			goto miss;
 		}
 	}
@@ -187,5 +190,6 @@ miss:
 		retry_key = NULL;
 		pr_err("B+Tree: get_prev: key miss\n");
 	}
+	prev_key = NULL;
 	return NULL;
 }

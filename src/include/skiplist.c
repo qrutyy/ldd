@@ -290,15 +290,15 @@ void skiplist_print(struct skiplist *sl)
 		curr = head;
 		while (curr) {
 			if (curr->key == HEAD_KEY && curr->value == HEAD_VALUE)
-				printk(KERN_CONT "head->");
+				pr_cont("head->");
 			else if (curr->key == TAIL_KEY && curr->value == TAIL_VALUE)
-				printk(KERN_CONT "tail->");
+				pr_cont("tail->");
 			else
-				printk(KERN_CONT "(%llu-%p)->", curr->key, curr->value);
+				pr_cont("(%llu-%p)->", curr->key, curr->value);
 
 			curr = curr->next;
 		}
-		printk(KERN_CONT "\n");
+		pr_cont("\n");
 		head = head->lower;
 	}
 }
@@ -357,7 +357,8 @@ struct skiplist_node *skiplist_last(struct skiplist *sl)
 	return curr;
 }
 
-struct skiplist_node *skiplist_prev(struct skiplist *sl, sector_t key)
+
+struct skiplist_node *skiplist_prev(struct skiplist *sl, sector_t key, sector_t *prev_key)
 {
 	struct skiplist_node *curr = sl->head;
 
@@ -365,8 +366,10 @@ struct skiplist_node *skiplist_prev(struct skiplist *sl, sector_t key)
 		while (curr->next && curr->next->key < key)
 			curr = curr->next;
 
-		if (!curr->lower)
+		if (!curr->lower) {
+			*prev_key = curr->key;
 			return curr;
+		}
 
 		curr = curr->lower;
 	}

@@ -35,5 +35,5 @@ void skiplist_free(struct skiplist *sl);
 void skiplist_print(struct skiplist *sl);
 struct skiplist_node *skiplist_add(struct skiplist *sl, sector_t key, void *data);
 void skiplist_remove(struct skiplist *sl, sector_t key);
-struct skiplist_node *skiplist_prev(struct skiplist *sl, sector_t key);
+struct skiplist_node *skiplist_prev(struct skiplist *sl, sector_t key, sector_t *prev_key);
 struct skiplist_node *skiplist_last(struct skiplist *sl);
