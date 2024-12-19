@@ -41,11 +41,11 @@ dd of=test2.txt if=/dev/lsvbd1 iflag=direct bs=4K count=10;
 ### Testing
 After making some changes you can check a lot of obvious cases using auto-tests:
 ```
-python3 test/autotest.py -vbd="lsvbd1" -n=5 -fs=-1 -bs=0
+python3 ../test/autotest.py -vbd="lsvbd1" -n=5 -fs=-1 -bs=0 -m=seq
 ```
 For parameter description - run:
 ```
-python3 test/autotest.py -c
+python3 ../test/autotest.py -c
 ```
 
 In addition you can use the provided fio tests, that time the execution and use pattern-verify process.
