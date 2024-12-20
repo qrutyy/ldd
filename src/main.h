@@ -2,22 +2,28 @@
 
 #pragma once
 
-#define MAX_BD_NAME_LENGTH 15
-#define MAX_MINORS_AM 20
-#define MAX_DS_NAME_LEN 2
-#define MAIN_BLKDEV_NAME "lsvbd"
-#define POOL_SIZE 50
-#define SECTOR_OFFSET 32
+#define LSBDD_MAX_BD_NAME_LENGTH 15
+#define LSBDD_MAX_MINORS_AM 20
+#define LSBDD_MAX_DS_NAME_LEN 2
+#define LSBDD_BLKDEV_NAME_PREFIX "lsvbd"
+#define LSBDD_SECTOR_OFFSET 32
+
+static const char *available_ds[] = {"bt", "sl", "ht", "rb"};
 
 struct redir_sector_info {
-	sector_t *redirected_sector;
-	unsigned int block_size;
+	sector_t redirected_sector;
+	u32 block_size;
 };
 
-struct bdd_manager {
-	char *bd_name;
-	struct gendisk *middle_disk;
-	struct bdev_handle *bdev_handler;
+struct bd_manager {
+	char *vbd_name;
+	struct gendisk *vbd_disk;
+	struct bdev_handle *bd_handler;
 	struct data_struct *sel_data_struct;
 	struct list_head list;
+};
+
+struct sectors {
+	sector_t original;
+	sector_t redirect;
 };

@@ -32,7 +32,7 @@ static void free_rbtree_node(struct rbtree_node *node)
 	kfree(node);
 }
 
-static int compare_keys(sector_t lkey, sector_t rkey)
+static s32 compare_keys(sector_t lkey, sector_t rkey)
 {
 	if (!(lkey && rkey))
 		return -2;
@@ -49,12 +49,11 @@ static struct rbtree_node *__rbtree_underlying_search(struct rb_root *root,
 	while (node) {
 		struct rbtree_node *data =
 			container_of(node, struct rbtree_node, node);
-		int result = compare_keys(key, data->key);
+		s32 result = compare_keys(key, data->key);
 
 		if (result == -2)
 			return NULL;
 
-		pr_debug("result = %d rb_right %p rb_left %p\n", result, node->rb_right, node->rb_left);
 		if (result < 0)
 			node = node->rb_left;
 
@@ -67,14 +66,14 @@ static struct rbtree_node *__rbtree_underlying_search(struct rb_root *root,
 	return NULL;
 }
 
-static int __rbtree_underlying_insert(struct rb_root *root, sector_t key, void *value)
+static s32 __rbtree_underlying_insert(struct rb_root *root, sector_t key, void *value)
 {
 	bool overwrite;
 	struct rb_node **new = NULL;
 	struct rb_node *parent = NULL;
 	struct rbtree_node *data = NULL;
 	struct rbtree_node *this = NULL;
-	int result;
+	s32 result;
 
 	overwrite = 0;
 	new = &(root->rb_node);
@@ -190,7 +189,7 @@ struct rbtree_node *rbtree_last(struct rbtree *rbt)
 	return container_of(node, struct rbtree_node, node);
 }
 
-struct rbtree_node *rbtree_prev(struct rbtree *rbt, sector_t key)
+struct rbtree_node *rbtree_prev(struct rbtree *rbt, sector_t key, sector_t *prev_key)
 {
 	struct rbtree_node *curr = NULL;
 	struct rb_root root = rbt->root;
@@ -210,7 +209,7 @@ struct rbtree_node *rbtree_prev(struct rbtree *rbt, sector_t key)
 				ancestor = ancestor->rb_left;
 			}
 		}
-
+		*prev_key = prev->key;
 		return prev;
 	}
 
@@ -220,7 +219,9 @@ struct rbtree_node *rbtree_prev(struct rbtree *rbt, sector_t key)
 		node = node->rb_left;
 		while (node && node->rb_right)
 			node = node->rb_right;
-		return container_of(node, struct rbtree_node, node);
+		curr = container_of(node, struct rbtree_node, node);
+		*prev_key = curr->key;
+		return curr;
 	}
 
 	return NULL;

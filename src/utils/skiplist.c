@@ -23,11 +23,11 @@ static void free_node_full(struct skiplist_node *node)
 }
 
 static struct skiplist_node *create_node_tall(sector_t key, void **value,
-								int h)
+								s32 h)
 {
 	struct skiplist_node *last;
 	struct skiplist_node *curr;
-	int curr_h;
+	s32 curr_h;
 
 	last = NULL;
 	for (curr_h = 0; curr_h < h; ++curr_h) {
@@ -96,7 +96,7 @@ struct skiplist_node *skiplist_find_node(struct skiplist *sl, sector_t key)
 	return NULL;
 }
 
-static int move_head_and_tail_up(struct skiplist *sl, int lvls_up)
+static s32 move_head_and_tail_up(struct skiplist *sl, int lvls_up)
 {
 	struct skiplist_node *head_ext;
 	struct skiplist_node *tail_ext;
@@ -133,10 +133,10 @@ alloc_fail:
 	return -ENOMEM;
 }
 
-static int move_up_if_lvl_nex(struct skiplist *sl, int lvl)
+static s32 move_up_if_lvl_nex(struct skiplist *sl, int lvl)
 {
-	unsigned int diff;
-	int ret;
+	u32 diff;
+	s32 ret;
 
 	if (lvl <= sl->head_lvl || lvl > sl->max_lvl)
 		return 0;
@@ -152,14 +152,14 @@ static int move_up_if_lvl_nex(struct skiplist *sl, int lvl)
 	return 0;
 }
 
-static int flip_coin(void)
+static s32 flip_coin(void)
 {
 	return get_random_u8() % 2;
 }
 
-static int get_random_lvl(int max)
+static s32 get_random_lvl(int max)
 {
-	int lvl = 0;
+	s32 lvl = 0;
 
 	while ((lvl < max) && flip_coin())
 		lvl++;
@@ -168,10 +168,10 @@ static int get_random_lvl(int max)
 }
 
 static void get_prev_nodes(sector_t key, struct skiplist *sl,
-			struct skiplist_node **buf, int lvl)
+			struct skiplist_node **buf, s32 lvl)
 {
 	struct skiplist_node *curr;
-	int curr_lvl;
+	s32 curr_lvl;
 
 	curr = sl->head;
 	curr_lvl = sl->head_lvl;
@@ -188,12 +188,12 @@ static void get_prev_nodes(sector_t key, struct skiplist *sl,
 }
 
 static struct skiplist_node *skiplist_insert_at_lvl(sector_t key,
-		void *value, struct skiplist *sl, int lvl)
+		void *value, struct skiplist *sl, s32 lvl)
 {
 	struct skiplist_node *prev[MAX_LVL+1];
 	struct skiplist_node *new;
 	struct skiplist_node *temp;
-	int i;
+	s32 i;
 
 	get_prev_nodes(key, sl, prev, lvl);
 	temp = NULL;
@@ -222,8 +222,8 @@ struct skiplist_node *skiplist_add(struct skiplist *sl, sector_t key, void *valu
 {
 	struct skiplist_node *old;
 	struct skiplist_node *new;
-	int lvl;
-	int err;
+	s32 lvl;
+	s32 err;
 
 	old = skiplist_find_node(sl, key);
 	if (old)
@@ -250,7 +250,7 @@ void skiplist_free(struct skiplist *sl)
 	struct skiplist_node *next;
 	struct skiplist_node *tofree;
 	struct skiplist_node *tofree_stack[MAX_LVL + 1];
-	int stack_i;
+	s32 stack_i;
 
 	if (!sl)
 		return;
@@ -290,15 +290,15 @@ void skiplist_print(struct skiplist *sl)
 		curr = head;
 		while (curr) {
 			if (curr->key == HEAD_KEY && curr->value == HEAD_VALUE)
-				printk(KERN_CONT "head->");
+				pr_cont("head->");
 			else if (curr->key == TAIL_KEY && curr->value == TAIL_VALUE)
-				printk(KERN_CONT "tail->");
+				pr_cont("tail->");
 			else
-				printk(KERN_CONT "(%llu-%p)->", curr->key, curr->value);
+				pr_cont("(%llu-%p)->", curr->key, curr->value);
 
 			curr = curr->next;
 		}
-		printk(KERN_CONT "\n");
+		pr_cont("\n");
 		head = head->lower;
 	}
 }
@@ -311,7 +311,7 @@ void skiplist_remove(struct skiplist *sl, sector_t key)
 
 	struct skiplist_node *curr = sl->head;
 	struct skiplist_node *prev[MAX_LVL + 1];
-	int i;
+	s32 i;
 
 	for (i = sl->head_lvl; i >= 0; --i) {
 		while (curr->next && curr->next->key < key)
@@ -357,7 +357,8 @@ struct skiplist_node *skiplist_last(struct skiplist *sl)
 	return curr;
 }
 
-struct skiplist_node *skiplist_prev(struct skiplist *sl, sector_t key)
+
+struct skiplist_node *skiplist_prev(struct skiplist *sl, sector_t key, sector_t *prev_key)
 {
 	struct skiplist_node *curr = sl->head;
 
@@ -365,8 +366,10 @@ struct skiplist_node *skiplist_prev(struct skiplist *sl, sector_t key)
 		while (curr->next && curr->next->key < key)
 			curr = curr->next;
 
-		if (!curr->lower)
+		if (!curr->lower) {
+			*prev_key = curr->key;
 			return curr;
+		}
 
 		curr = curr->lower;
 	}
