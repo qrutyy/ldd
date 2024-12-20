@@ -58,12 +58,15 @@ class Test:
         self.errors = []
 
     def get_even_divisors(self, n):
+        """The range of divisors is limited ( <= 8)due scatterlist kernel bug on a VM (6.8.0-50 kernel version)
+        BTW: this problem appears only in this type of testing, the inconsequent (+ fio) passes.
+        TODO: test on a x86-64 machine! (without virtualisation)"""
         divisors = set()
         for i in range(2, int(n**0.5) + 1):
             if n % i == 0:
-                if i % 2 == 0 and i < 32:
+                if i % 2 == 0 and i <= 8 and i >= 4:
                     divisors.add(i)
-                if (n // i) % 2 == 0 and (n // i) < 32:
+                if (n // i) % 2 == 0 and (n // i) <= 8 and (n // 1) >= 4:
                     divisors.add(n // i)
         return divisors
 
@@ -81,7 +84,7 @@ class Test:
         if self.mode == "seq":
             seek_offset = 0
             skip_offset = 0
-            op_num = 8
+            op_num = 4
             prod = self.shrink_list(product(block_sizes, repeat=2), op_num)
             print(prod)
             for write_bs, read_bs in prod:

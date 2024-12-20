@@ -23,17 +23,17 @@ echo "index path" > /sys/module/lsbdd/parameters/set_redirect_bd
 
 ### Sending requests: 
 
-**Initialise example:**
+**Initialisation example:**
 ```bash
 ...
 echo "1 /dev/vdb" > /sys/module/lsbdd/parameters/set_redirect_bd
 cat /sys/module/lsbdd/parameters/get_bd_names // to get the links
 ```
-### Writing
+#### Writing
 ```
 dd if=/dev/urandom of=/dev/lsvbd1 oflag=direct bs=2K count=10;
 ```
-### Reading
+#### Reading
 ```
 dd of=test2.txt if=/dev/lsvbd1 iflag=direct bs=4K count=10; 
 ```
@@ -43,11 +43,6 @@ After making some changes you can check a lot of obvious cases using auto-tests:
 ```
 python3 ../test/autotest.py -vbd="lsvbd1" -n=5 -fs=-1 -bs=0 -m=seq
 ```
-For parameter description - run:
-```
-python3 ../test/autotest.py -c
-```
-
 In addition you can use the provided fio tests, that time the execution and use pattern-verify process.
 ```
 make fio_verify WO=randwrite RO=randread FS=1000 WBS=8 RBS=8
